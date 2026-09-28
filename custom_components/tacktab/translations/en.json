@@ -1,0 +1,43 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Add a Tacktab tablet",
+        "description": "In Tacktab, open Settings (hold the top-left corner for 3 seconds), turn on Remote control API and set a password. Tacktab shows the tablet's address there.",
+        "data": {
+          "host": "Tablet address",
+          "port": "Port",
+          "password": "API password"
+        }
+      },
+      "discovery_confirm": {
+        "title": "Add {name}",
+        "description": "Tacktab was found at {host}. Enter the API password from Tacktab's settings.",
+        "data": { "password": "API password" }
+      },
+      "reauth_confirm": {
+        "title": "Tacktab password changed",
+        "description": "Enter the new API password from Tacktab's settings.",
+        "data": { "password": "API password" }
+      }
+    },
+    "error": {
+      "cannot_connect": "Can't reach Tacktab. Check the address, and that Remote control API is on and Tacktab is open.",
+      "invalid_auth": "Tacktab rejected the password.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This tablet is already added.",
+      "reauth_successful": "Password updated.",
+      "not_supported": "This Tacktab version is too old for discovery. Add it by address instead."
+    }
+  },
+  "entity": {
+    "switch": { "screen": { "name": "Screen" } },
+    "number": { "brightness": { "name": "Brightness" } },
+    "button": { "reload": { "name": "Reload page" } },
+    "text": { "page": { "name": "Page" } },
+    "sensor": { "version": { "name": "App version" } }
+  }
+}
