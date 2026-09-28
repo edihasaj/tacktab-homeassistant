@@ -9,8 +9,8 @@ from custom_components.tacktab.const import DOMAIN
 from .conftest import BASE, ENTRY_DATA, STATUS
 
 
-async def _setup(hass: HomeAssistant, aioclient_mock) -> MockConfigEntry:
-    aioclient_mock.get(f"{BASE}/status", json=STATUS)
+async def _setup(hass: HomeAssistant, aioclient_mock, status: dict | None = None) -> MockConfigEntry:
+    aioclient_mock.get(f"{BASE}/status", json=status or STATUS)
     entry = MockConfigEntry(domain=DOMAIN, unique_id="abc123", title="Kitchen tablet", data=ENTRY_DATA)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -33,6 +33,16 @@ async def test_screen_off_sleeps_and_uses_the_answer(hass: HomeAssistant, aiocli
     aioclient_mock.post(f"{BASE}/sleep", json={**STATUS, "screen": "sleep"})
     await hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: "switch.kitchen_tablet_screen"}, blocking=True)
     assert hass.states.get("switch.kitchen_tablet_screen").state == STATE_OFF
+
+
+async def test_display_off_reports_off_and_its_mode(hass: HomeAssistant, aioclient_mock) -> None:
+    """Tacktab 1.0.2+ switches the display off ("off") when it may, and says how."""
+    await _setup(hass, aioclient_mock, {**STATUS, "screen_off": "display"})
+    aioclient_mock.post(f"{BASE}/sleep", json={**STATUS, "screen": "off", "screen_off": "display"})
+    await hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: "switch.kitchen_tablet_screen"}, blocking=True)
+    state = hass.states.get("switch.kitchen_tablet_screen")
+    assert state.state == STATE_OFF
+    assert state.attributes["off_mode"] == "display"
 
 
 async def test_commands_hit_the_right_endpoints(hass: HomeAssistant, aioclient_mock) -> None:

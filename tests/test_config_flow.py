@@ -32,6 +32,13 @@ async def test_user_flow_wrong_password(hass: HomeAssistant, aioclient_mock) -> 
     assert result["errors"] == {"base": "invalid_auth"}
 
 
+async def test_user_flow_locked_out_after_wrong_passwords(hass: HomeAssistant, aioclient_mock) -> None:
+    aioclient_mock.get(f"{BASE}/status", status=429, headers={"Retry-After": "30"})
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], ENTRY_DATA)
+    assert result["errors"] == {"base": "too_many_attempts"}
+
+
 async def test_user_flow_unreachable(hass: HomeAssistant, aioclient_mock) -> None:
     aioclient_mock.get(f"{BASE}/status", exc=TimeoutError())
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})

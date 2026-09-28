@@ -25,6 +25,7 @@
     "error": {
       "cannot_connect": "Can't reach Tacktab. Check the address, and that Remote control API is on and Tacktab is open.",
       "invalid_auth": "Tacktab rejected the password.",
+      "too_many_attempts": "Too many wrong passwords. Tacktab is refusing this Home Assistant for a while; wait a minute, then try again with the right password.",
       "unknown": "Unexpected error."
     },
     "abort": {

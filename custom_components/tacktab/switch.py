@@ -1,4 +1,9 @@
-"""Screen on/off. Off blacks the screen out and dims it; a tap or "on" wakes it."""
+"""Screen on/off.
+
+Off switches the display off when Tacktab may (device owner or device admin),
+otherwise it blacks the screen out and dims it. The `off_mode` attribute says
+which. A tap or "on" wakes it.
+"""
 
 from __future__ import annotations
 
@@ -32,3 +37,8 @@ class TacktabScreen(TacktabEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.command(self.coordinator.client.sleep)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        mode = self.coordinator.data.get("screen_off")
+        return None if mode is None else {"off_mode": mode}

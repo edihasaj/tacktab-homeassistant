@@ -12,7 +12,7 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
-from .api import TacktabAuthError, TacktabClient, TacktabError
+from .api import TacktabAuthError, TacktabClient, TacktabError, TacktabRateLimitError
 from .const import DEFAULT_PORT, DOMAIN
 
 
@@ -33,6 +33,8 @@ class TacktabConfigFlow(ConfigFlow, domain=DOMAIN):
             return await client.status(), None
         except TacktabAuthError:
             return None, "invalid_auth"
+        except TacktabRateLimitError:
+            return None, "too_many_attempts"
         except TacktabError:
             return None, "cannot_connect"
 

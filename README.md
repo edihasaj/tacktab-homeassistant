@@ -13,7 +13,7 @@ it. You only type the API password.
 
 | Entity | What it does |
 | --- | --- |
-| Screen (switch) | Off blacks the screen out and dims it; on wakes it. A tap on the tablet also wakes it. |
+| Screen (switch) | Off switches the display off, or blacks the screen out and dims it when Tacktab is not allowed to (see below). On wakes it. A tap on the tablet also wakes it. The `off_mode` attribute is `display` or `dim`. |
 | Brightness (number) | Screen brightness, 0 to 100 %. Unknown means Tacktab follows the system brightness. |
 | Page (text) | The page Tacktab shows. Set it to open another address. |
 | Reload page (button) | Reloads the page. |
@@ -27,6 +27,7 @@ so the dashboard updates straight away.
 ## Requirements
 
 - Tacktab 1.0.1 or later for discovery. Tacktab 1.0.0 works too, added by address.
+- Tacktab 1.0.2 or later for a real display off on Android.
 - The remote control API is a Tacktab Pro feature. Pro is a one-time purchase and
   has a free 24-hour trial.
 - The tablet and Home Assistant on the same network.
@@ -34,8 +35,12 @@ so the dashboard updates straight away.
 ## Set up Tacktab
 
 1. In Tacktab, press and hold the top-left corner for 3 seconds to open Settings.
-2. Under Remote control, set an API password of 6 characters or more and turn on
-   Remote control API. Tacktab shows the tablet's address underneath.
+2. Under Remote control, select Generate, then Copy and Save. Keep the password
+   for Home Assistant. Tacktab needs at least 8 characters; a generated one is 20.
+3. Turn on Remote control API. Tacktab shows the tablet's address underneath.
+4. Android only, optional: next to Screen off, select Allow. Without it, "off"
+   dims the screen to black instead of switching the display off. A tablet set
+   up as device owner (Tacktab's full lock) can already switch it off.
 
 ## Install
 
@@ -107,6 +112,18 @@ automation:
 
 The integration uses Tacktab's local HTTP API on port 7979, documented at
 https://applifyer.com/tacktab/api. You can call it from anything else too.
+
+## Security
+
+- Every call needs the password as `Authorization: Bearer <password>`. A password
+  in the address (`?password=`) is refused.
+- After 5 wrong passwords from one address, Tacktab refuses that address for 30
+  seconds, doubling up to 15 minutes. Home Assistant then shows "Too many wrong
+  passwords". Other addresses are not affected.
+- Requests from a web page (they carry an `Origin` header) are refused, so a
+  website open on another device cannot control the tablet.
+- The API is plain HTTP on your local network. Keep it there: do not forward port
+  7979 on your router.
 
 ## Development
 

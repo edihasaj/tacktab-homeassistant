@@ -23,6 +23,14 @@ class TacktabAuthError(TacktabError):
     """The password was rejected."""
 
 
+class TacktabRateLimitError(TacktabError):
+    """Too many wrong passwords from this address; Tacktab waits before checking again."""
+
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(f"too many wrong passwords, retry in {retry_after} s")
+        self.retry_after = retry_after
+
+
 class TacktabClient:
     """Talks to one Tacktab tablet."""
 
@@ -39,6 +47,8 @@ class TacktabClient:
                 response = await self._session.request(method, URL(self._base + path, encoded=True), headers=self._headers)
                 if response.status == 401:
                     raise TacktabAuthError("password rejected")
+                if response.status == 429:
+                    raise TacktabRateLimitError(int(response.headers.get("Retry-After", "30") or 30))
                 if response.status != 200:
                     raise TacktabError(f"{method} {path} returned HTTP {response.status}")
                 return await response.json(content_type=None)
