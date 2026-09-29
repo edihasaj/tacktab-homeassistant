@@ -1,6 +1,6 @@
 # Tacktab for Home Assistant
 
-Control [Tacktab](https://applifyer.com/tacktab) wall tablets from Home Assistant.
+Control [Tacktab](https://tacktab.com) wall tablets from Home Assistant.
 Tacktab is a kiosk browser for Android and iOS that pins a tablet to one web page,
 such as a Home Assistant dashboard. This integration turns the screen on and off,
 changes the page, sets brightness and reports the battery.
@@ -111,7 +111,7 @@ automation:
 ## The API
 
 The integration uses Tacktab's local HTTP API on port 7979, documented at
-https://applifyer.com/tacktab/api. You can call it from anything else too.
+https://tacktab.com/api/. You can call it from anything else too.
 
 ## Security
 

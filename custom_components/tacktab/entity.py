@@ -25,5 +25,5 @@ class TacktabEntity(CoordinatorEntity[TacktabCoordinator]):
             manufacturer="Applifyer",
             model=data.get("model"),
             sw_version=data.get("version"),
-            configuration_url="https://applifyer.com/tacktab",
+            configuration_url="https://tacktab.com/help/",
         )

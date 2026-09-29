@@ -1,6 +1,6 @@
 """Client for the Tacktab remote control API.
 
-The API is documented at https://applifyer.com/tacktab/api. Every call needs
+The API is documented at https://tacktab.com/api/. Every call needs
 the password set in Tacktab's settings, sent as a bearer token. Every call
 answers with the tablet's current status, so a command also refreshes state.
 """
