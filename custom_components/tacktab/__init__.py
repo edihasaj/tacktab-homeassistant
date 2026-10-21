@@ -9,7 +9,15 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import TacktabClient
 from .coordinator import TacktabConfigEntry, TacktabCoordinator
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH, Platform.TEXT]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.NOTIFY,
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.TEXT,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: TacktabConfigEntry) -> bool:

@@ -50,10 +50,15 @@ class TacktabClient:
                 if response.status == 429:
                     raise TacktabRateLimitError(int(response.headers.get("Retry-After", "30") or 30))
                 if response.status != 200:
-                    raise TacktabError(f"{method} {path} returned HTTP {response.status}")
+                    # Paths can include page addresses or announcement text. Never
+                    # put them in an error that Home Assistant may expose in logs.
+                    raise TacktabError(f"request returned HTTP {response.status}")
                 return await response.json(content_type=None)
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
-            raise TacktabError(str(err) or type(err).__name__) from err
+            # Client error strings can contain the request URL, including query
+            # parameters. The exception type is enough to diagnose a transport
+            # failure without exposing a URL, password, or spoken message.
+            raise TacktabError(f"request failed ({type(err).__name__})") from None
 
     async def status(self) -> dict[str, Any]:
         return await self._request("GET", "/status")
@@ -72,3 +77,17 @@ class TacktabClient:
 
     async def brightness(self, percent: int) -> dict[str, Any]:
         return await self._request("POST", f"/brightness?percent={int(percent)}")
+
+    async def announce(self, text: str) -> dict[str, Any]:
+        """Speak a locally configured announcement on an Android tablet."""
+        if any(
+            ord(character) <= 0x1F or 0x7F <= ord(character) <= 0x9F
+            for character in text
+        ):
+            raise TacktabError("announcement text must not contain ISO control characters")
+        announcement = text.strip()
+        if not announcement:
+            raise TacktabError("announcement text must not be empty")
+        if len(announcement) > 500:
+            raise TacktabError("announcement text must be at most 500 Unicode code points")
+        return await self._request("POST", f"/announce?text={quote(announcement, safe='')}")

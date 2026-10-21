@@ -39,6 +39,7 @@
     "number": { "brightness": { "name": "Brightness" } },
     "button": { "reload": { "name": "Reload page" } },
     "text": { "page": { "name": "Page" } },
-    "sensor": { "version": { "name": "App version" } }
+    "sensor": { "version": { "name": "App version" } },
+    "notify": { "announcements": { "name": "Announcements" } }
   }
 }
