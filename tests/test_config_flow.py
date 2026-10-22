@@ -75,7 +75,7 @@ async def test_voice_bridge_mode_creates_free_bootstrap_entry(hass: HomeAssistan
     await hass.async_block_till_done()
     assert result["result"].state is config_entries.ConfigEntryState.LOADED
     assert "tacktab/voice/connect" in hass.data["websocket_api"]
-    assert "tacktab/realtime/start" not in hass.data["websocket_api"]
+    assert "tacktab/realtime/start" in hass.data["websocket_api"]
 
 
 async def test_clean_voice_bootstrap_accepts_authenticated_native_pairing(hass: HomeAssistant, hass_ws_client) -> None:

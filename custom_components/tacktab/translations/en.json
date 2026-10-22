@@ -40,6 +40,20 @@
       "not_supported": "This Tacktab version is too old for discovery. Add it by address instead."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Voice bridge local HTTP",
+        "description": "{disclosure}",
+        "data": {
+          "realtime_trusted_local_http": "Allow local HTTP provider-key updates"
+        }
+      }
+    },
+    "abort": {
+      "not_supported": "This option is available only on the Voice satellite bridge entry."
+    }
+  },
   "entity": {
     "switch": { "screen": { "name": "Screen" } },
     "number": { "brightness": { "name": "Brightness" } },

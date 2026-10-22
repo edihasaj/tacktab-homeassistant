@@ -30,8 +30,8 @@ so the dashboard updates straight away.
 - Tacktab 1.0.1 or later for discovery. Tacktab 1.0.0 works too, added by address.
 - Tacktab 1.0.2 or later for a real display off on Android.
 - Optional spoken announcements require Tacktab 1.2.0 or later on Android or
-  iOS and this integration’s 1.2.0 update. Both mobile releases are awaiting
-  store approval. Older apps keep their existing controls and do not gain an
+  iOS and this integration’s 1.2.0 update. Both mobile releases are available
+  in their stores. Older apps keep their existing controls and do not gain an
   Announcements entity.
 - The remote control API is a Tacktab Pro feature. Pro is a one-time purchase and
   has a free 24-hour trial.
@@ -48,6 +48,12 @@ remote-control HTTP API, use its password, or require Tacktab Pro. Each tablet
 has a primary satellite and may add a secondary satellite, each with its own
 Assist pipeline selection and conversation context. Voice remains locally
 gated by the tablet's microphone permission and Voice setting.
+
+The next mobile update adds tablet-local wake detection and native timers.
+This branch includes its bridge support; it does not add those capabilities to
+an older installed app. Optional [realtime conversations](docs/realtime.md)
+relay audio through your Home Assistant to OpenAI, xAI or Gemini. The existing
+Assist pipeline remains available without a realtime provider key.
 
 ## Set up Tacktab
 

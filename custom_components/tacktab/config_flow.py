@@ -7,7 +7,8 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
@@ -21,6 +22,11 @@ class TacktabConfigFlow(ConfigFlow, domain=DOMAIN):
     """Add a Tacktab tablet."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return TacktabVoiceOptionsFlow()
 
     def __init__(self) -> None:
         self._host: str | None = None
@@ -118,4 +124,21 @@ class TacktabConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = error
         return self.async_show_form(
             step_id="reauth_confirm", data_schema=vol.Schema({vol.Required(CONF_PASSWORD): str}), errors=errors
+        )
+
+
+class TacktabVoiceOptionsFlow(OptionsFlow):
+    """Configure the bootstrap-only local HTTP key disclosure boundary."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if self.config_entry.data.get(VOICE_BOOTSTRAP_KEY) is not True:
+            return self.async_abort(reason="not_supported")
+        if user_input is not None:
+            options = {**self.config_entry.options, "realtime_trusted_local_http": user_input["realtime_trusted_local_http"]}
+            self.hass.config_entries.async_update_entry(self.config_entry, options=options)
+            return self.async_create_entry(title="", data={})
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({vol.Required("realtime_trusted_local_http", default=self.config_entry.options.get("realtime_trusted_local_http", False)): bool}),
+            description_placeholders={"disclosure": "Only allow provider-key updates over plain HTTP from private or loopback addresses."},
         )

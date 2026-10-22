@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tacktab:realtime-events:v1",
+  "title": "Tacktab realtime websocket event payload",
+  "oneOf": [
+    {"$ref": "#/$defs/ready"}, {"$ref": "#/$defs/audio"},
+    {"$ref": "#/$defs/audio_end"}, {"$ref": "#/$defs/transcript"},
+    {"$ref": "#/$defs/playback"}, {"$ref": "#/$defs/tool"}, {"$ref": "#/$defs/closed"}
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "properties": {
+        "event": {"const": "realtime"}, "epoch": {"type": "string", "minLength": 1},
+        "seq": {"type": "integer", "minimum": 1}, "session_id": {"type": "string", "minLength": 1},
+        "slot_id": {"enum": ["primary", "secondary"]}, "kind": {"type": "string"}
+      },
+      "required": ["event", "epoch", "seq", "session_id", "slot_id", "kind"]
+    },
+    "format": {
+      "type": "object",
+      "properties": {"codec": {"const": "pcm_s16le"}, "sample_rate": {"enum": [16000, 24000]}, "channels": {"const": 1}},
+      "required": ["codec", "sample_rate", "channels"], "additionalProperties": false
+    },
+    "ready": {
+      "allOf": [{"$ref": "#/$defs/base"}, {"type": "object", "properties": {
+        "kind": {"const": "ready"}, "provider": {"enum": ["openai", "xai", "gemini"]}, "model": {"type": "string", "minLength": 1}, "voice": {"type": "string", "minLength": 1},
+        "input_format": {"$ref": "#/$defs/format"}, "output_format": {"$ref": "#/$defs/format"}
+      }, "required": ["kind", "provider", "model", "voice", "input_format", "output_format"]}],
+      "unevaluatedProperties": false
+    },
+    "audio": {
+      "allOf": [{"$ref": "#/$defs/base"}, {"type": "object", "properties": {
+        "kind": {"const": "audio"}, "playback_id": {"type": "string", "minLength": 1}, "item_id": {"type": "string"}, "chunk_seq": {"type": "integer", "minimum": 0},
+        "audio": {"type": "string", "contentEncoding": "base64", "minLength": 1}, "frames": {"type": "integer", "minimum": 1}
+      }, "required": ["kind", "playback_id", "item_id", "chunk_seq", "audio", "frames"]}],
+      "unevaluatedProperties": false
+    },
+    "audio_end": {
+      "allOf": [{"$ref": "#/$defs/base"}, {"type": "object", "properties": {"kind": {"const": "audio_end"}, "playback_id": {"type": "string", "minLength": 1}}, "required": ["kind", "playback_id"]}],
+      "unevaluatedProperties": false
+    },
+    "transcript": {
+      "allOf": [{"$ref": "#/$defs/base"}, {"type": "object", "properties": {
+        "kind": {"const": "transcript"}, "role": {"enum": ["user", "assistant"]}, "item_id": {"type": "string"}, "text": {"type": "string"},
+        "operation": {"enum": ["append", "replace"]}, "final": {"type": "boolean"}
+      }, "required": ["kind", "role", "item_id", "text", "operation", "final"]}],
+      "unevaluatedProperties": false
+    },
+    "playback": {
+      "allOf": [{"$ref": "#/$defs/base"}, {"type": "object", "properties": {
+        "kind": {"enum": ["speech_started", "speech_stopped", "interrupted"]}, "playback_id": {"type": ["string", "null"]}
+      }, "required": ["kind", "playback_id"]}],
+      "unevaluatedProperties": false
+    },
+    "tool": {
+      "allOf": [{"$ref": "#/$defs/base"}, {"type": "object", "properties": {
+        "kind": {"const": "tool_state"}, "call_id": {"type": "string", "minLength": 1}, "state": {"enum": ["running", "completed", "failed"]}
+      }, "required": ["kind", "call_id", "state"]}],
+      "unevaluatedProperties": false
+    },
+    "closed": {
+      "allOf": [{"$ref": "#/$defs/base"}, {"type": "object", "properties": {
+        "kind": {"const": "closed"}, "reason": {"type": "string", "minLength": 1}, "memory_retained": {"type": "boolean"}, "recoverable": {"type": "boolean"}
+      }, "required": ["kind", "reason", "memory_retained", "recoverable"]}],
+      "unevaluatedProperties": false
+    }
+  }
+}

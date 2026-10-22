@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib.metadata import version as package_version
+import asyncio
 from types import MappingProxyType
 from typing import Any
 
@@ -17,6 +18,8 @@ VOICE_ENTRY_KEY = "voice_install_id"
 VOICE_ENTRY_PLATFORM = "voice_platform"
 VOICE_ENTRY_SLOTS = "voice_slots"
 VOICE_BOOTSTRAP_KEY = "voice_bridge_bootstrap"
+VOICE_BOOTSTRAP_UNIQUE_ID = "voice-bridge-bootstrap"
+VOICE_BOOTSTRAP_LOCK = "voice_bridge_bootstrap_lock"
 
 
 def native_voice_supported() -> bool:
@@ -61,6 +64,29 @@ async def async_ensure_voice_entry(hass: HomeAssistant, msg: dict[str, Any]) -> 
     if entry.state is not ConfigEntryState.LOADED or not hasattr(entry, "runtime_data"):
         raise RuntimeError("Voice device entry did not load")
     return entry
+
+
+async def async_ensure_voice_bootstrap_entry(hass: HomeAssistant) -> ConfigEntry:
+    """Create the single canonical provider-key entry when it is missing."""
+    lock = hass.data.setdefault(VOICE_BOOTSTRAP_LOCK, asyncio.Lock())
+    async with lock:
+        existing = hass.config_entries.async_entry_for_domain_unique_id("tacktab", VOICE_BOOTSTRAP_UNIQUE_ID)
+        if existing is not None:
+            return existing
+        entry = ConfigEntry(
+            data={VOICE_BOOTSTRAP_KEY: True},
+            discovery_keys=MappingProxyType({}),
+            domain="tacktab",
+            minor_version=1,
+            options={},
+            source=SOURCE_SYSTEM,
+            subentries_data=(),
+            title="Voice satellite bridge",
+            unique_id=VOICE_BOOTSTRAP_UNIQUE_ID,
+            version=1,
+        )
+        await hass.config_entries.async_add(entry)
+        return entry
 
 
 async def async_setup_voice_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
