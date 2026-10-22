@@ -93,20 +93,20 @@ async def test_page_url_with_its_own_query_stays_one_value(hass: HomeAssistant, 
     assert sent.query["url"] == page
 
 
-async def test_old_or_ios_tablet_without_announcement_capability_has_no_notifier(
+async def test_tablet_without_announcement_capability_has_no_notifier(
     hass: HomeAssistant, aioclient_mock
 ) -> None:
     await _setup(hass, aioclient_mock)
     assert hass.states.get("notify.kitchen_tablet_announcements") is None
 
 
-async def test_announcement_entity_appears_after_android_upgrade_and_tracks_opt_in(
+async def test_announcement_entity_appears_after_upgrade_and_tracks_opt_in(
     hass: HomeAssistant, aioclient_mock
 ) -> None:
     entry = await _setup(hass, aioclient_mock)
 
     # The capability appears in status only after the tablet is upgraded. A
-    # false value means Android supports it but its owner has not enabled it.
+    # false value means the tablet supports it but its owner has not enabled it.
     entry.runtime_data.async_set_updated_data({**STATUS, "announcements_enabled": False})
     await hass.async_block_till_done()
     assert hass.states.get("notify.kitchen_tablet_announcements").state == "unavailable"

@@ -20,7 +20,7 @@ it. You only type the API password.
 | Battery (sensor) | Battery level. |
 | Charging (binary sensor) | Whether the tablet is charging. |
 | App version (diagnostic sensor) | The Tacktab version on the tablet. |
-| Announcements (notify) | Android only. Speaks a message through the tablet after announcements are enabled in Tacktab. |
+| Announcements (notify) | Android and iOS 1.2 or later. Speaks a message through the tablet after announcements are enabled in Tacktab. |
 
 The integration polls every 10 seconds. Each command's answer is the new state,
 so the dashboard updates straight away.
@@ -29,9 +29,10 @@ so the dashboard updates straight away.
 
 - Tacktab 1.0.1 or later for discovery. Tacktab 1.0.0 works too, added by address.
 - Tacktab 1.0.2 or later for a real display off on Android.
-- Optional spoken announcements require the forthcoming Tacktab Android 1.2.0
-  and this integration's 1.2.0 update. Older apps and iOS keep their existing
-  controls and do not gain an Announcements entity.
+- Optional spoken announcements require Tacktab 1.2.0 or later on Android or
+  iOS and this integration’s 1.2.0 update. Both mobile releases are awaiting
+  store approval. Older apps keep their existing controls and do not gain an
+  Announcements entity.
 - The remote control API is a Tacktab Pro feature. Pro is a one-time purchase and
   has a free 24-hour trial.
 - The tablet and Home Assistant on the same network.
@@ -45,7 +46,7 @@ so the dashboard updates straight away.
 4. Android only, optional: next to Screen off, select Allow. Without it, "off"
    dims the screen to black instead of switching the display off. A tablet set
    up as device owner (Tacktab's full lock) can already switch it off.
-5. Android only, optional: under Voice and announcements, enable Spoken
+5. Optional on Android and iOS: under Voice and announcements, enable Spoken
    announcements. This adds an
    Announcements notification entity after the next 10-second poll. It only
    enables speech output; it does not enable or grant microphone access.
@@ -116,7 +117,7 @@ automation:
           value: http://homeassistant.local:8123/dashboard-door/camera
 ```
 
-Speak a reminder through an Android tablet. Messages are trimmed, must not be
+Speak a reminder through a supported Android tablet or iPad. Messages are trimmed, must not be
 empty, and are limited to 500 Unicode code points:
 
 ```yaml

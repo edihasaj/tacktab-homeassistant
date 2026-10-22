@@ -1,4 +1,4 @@
-"""Optional spoken announcements for Android Tacktab tablets."""
+"""Optional spoken announcements for supported Tacktab tablets."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ async def async_setup_entry(
 
     @callback
     def async_add_announcements_if_supported() -> None:
-        """Add the entity once an Android tablet reports the capability."""
+        """Add the entity once a tablet reports the capability."""
         nonlocal added
         if added or "announcements_enabled" not in (coordinator.data or {}):
             return
@@ -36,7 +36,7 @@ async def async_setup_entry(
 
 
 class TacktabAnnouncements(TacktabEntity, NotifyEntity):
-    """Speak messages when the user has enabled Android announcements in Tacktab."""
+    """Speak messages when the user has enabled announcements in Tacktab."""
 
     _attr_translation_key = "announcements"
 
@@ -51,7 +51,7 @@ class TacktabAnnouncements(TacktabEntity, NotifyEntity):
 
     @override
     async def async_send_message(self, message: str, title: str | None = None) -> None:
-        """Speak a message through the tablet's configured Android voice."""
+        """Speak a message through the tablet's configured voice."""
         if (self.coordinator.data or {}).get("announcements_enabled") is not True:
             raise HomeAssistantError("Announcements are disabled in Tacktab")
         await self.coordinator.command(lambda: self.coordinator.client.announce(message))
