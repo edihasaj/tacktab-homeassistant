@@ -49,11 +49,16 @@ has a primary satellite and may add a secondary satellite, each with its own
 Assist pipeline selection and conversation context. Voice remains locally
 gated by the tablet's microphone permission and Voice setting.
 
-The next mobile update adds tablet-local wake detection and native timers.
-This branch includes its bridge support; it does not add those capabilities to
-an older installed app. Optional [realtime conversations](docs/realtime.md)
+Integration 1.3.0 prepares the Tacktab 1.3 mobile update with tablet-local wake
+detection and native timers. It does not add those capabilities to an older
+installed app. Optional [realtime conversations](docs/realtime.md)
 relay audio through your Home Assistant to OpenAI, xAI or Gemini. The existing
 Assist pipeline remains available without a realtime provider key.
+
+The free bridge adds canonical `assist_satellite.announce`, conversation and
+question actions, authoritative timers and per-slot assistant selection. It
+can observe compatible HA speakers through protocol 2 while keeping protocol 1
+local playback compatible. The Pro HTTP remote API remains separate.
 
 ## Set up Tacktab
 
