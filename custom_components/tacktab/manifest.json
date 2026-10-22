@@ -1,6 +1,7 @@
 {
   "domain": "tacktab",
   "name": "Tacktab",
+  "after_dependencies": ["assist_pipeline", "assist_satellite", "intent", "llm", "media_player", "media_source"],
   "codeowners": ["@edihasaj"],
   "config_flow": true,
   "documentation": "https://github.com/edihasaj/tacktab-homeassistant",

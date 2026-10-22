@@ -5,10 +5,14 @@ from __future__ import annotations
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import config_validation as cv
 
 from .api import TacktabClient
 from .coordinator import TacktabConfigEntry, TacktabCoordinator
+from .const import DOMAIN
 from .voice_setup import async_setup_voice_entry, async_unload_voice_entry, is_voice_entry, native_voice_supported
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
