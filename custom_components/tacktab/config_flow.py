@@ -14,6 +14,7 @@ from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .api import TacktabAuthError, TacktabClient, TacktabError, TacktabRateLimitError
 from .const import DEFAULT_PORT, DOMAIN
+from .voice_setup import VOICE_BOOTSTRAP_KEY
 
 
 class TacktabConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -48,6 +49,15 @@ class TacktabConfigFlow(ConfigFlow, domain=DOMAIN):
         return status.get("name") or f"Tacktab {status.get('model', '')}".strip()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="user", menu_options=["voice_bridge", "http"])
+
+    async def async_step_voice_bridge(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Enable the free native Voice pairing listener without HTTP control."""
+        await self.async_set_unique_id("voice-bridge-bootstrap")
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title="Voice satellite bridge", data={VOICE_BOOTSTRAP_KEY: True})
+
+    async def async_step_http(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             host, port = user_input[CONF_HOST].strip(), user_input[CONF_PORT]
@@ -62,7 +72,7 @@ class TacktabConfigFlow(ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_PORT, default=(user_input or {}).get(CONF_PORT, DEFAULT_PORT)): int,
             vol.Required(CONF_PASSWORD): str,
         })
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="http", data_schema=schema, errors=errors)
 
     async def async_step_zeroconf(self, discovery_info: ZeroconfServiceInfo) -> ConfigFlowResult:
         """A tablet with the remote control API on advertised itself on the network."""

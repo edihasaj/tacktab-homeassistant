@@ -8,6 +8,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import TacktabClient
 from .coordinator import TacktabConfigEntry, TacktabCoordinator
+from .voice_setup import async_setup_voice_entry, async_unload_voice_entry, is_voice_entry, native_voice_supported
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -21,6 +22,8 @@ PLATFORMS = [
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: TacktabConfigEntry) -> bool:
+    if is_voice_entry(entry):
+        return await async_setup_voice_entry(hass, entry)
     client = TacktabClient(
         async_get_clientsession(hass), entry.data[CONF_HOST], entry.data[CONF_PORT], entry.data[CONF_PASSWORD]
     )
@@ -32,4 +35,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: TacktabConfigEntry) -> b
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: TacktabConfigEntry) -> bool:
+    if is_voice_entry(entry):
+        return await async_unload_voice_entry(hass, entry)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register native voice only on the Core release that exposes its APIs."""
+    if native_voice_supported():
+        from .voice_ws import async_register_voice_websocket_api
+
+        async_register_voice_websocket_api(hass)
+    return True

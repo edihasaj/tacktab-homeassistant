@@ -37,6 +37,18 @@ so the dashboard updates straight away.
   has a free 24-hour trial.
 - The tablet and Home Assistant on the same network.
 
+### Native Assist voice
+
+Home Assistant Core 2026.10 or later can pair Tacktab's native Assist bridge
+from the tablet's Voice settings. First add **Tacktab** in Home Assistant and
+choose **Voice satellite bridge (free)** as the setup mode; then pair from the tablet.
+The first pairing uses an administrator HA
+login and creates a separate voice-only device entry; it does not enable the
+remote-control HTTP API, use its password, or require Tacktab Pro. Each tablet
+has a primary satellite and may add a secondary satellite, each with its own
+Assist pipeline selection and conversation context. Voice remains locally
+gated by the tablet's microphone permission and Voice setting.
+
 ## Set up Tacktab
 
 1. In Tacktab, press and hold the top-left corner for 3 seconds to open Settings.

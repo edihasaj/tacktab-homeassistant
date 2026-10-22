@@ -3,6 +3,12 @@
     "flow_title": "{name}",
     "step": {
       "user": {
+        "menu_options": {
+          "voice_bridge": "Voice satellite bridge (free)",
+          "http": "Remote control API (Tacktab Pro)"
+        }
+      },
+      "http": {
         "title": "Add a Tacktab tablet",
         "description": "In Tacktab, open Settings (hold the top-left corner for 3 seconds), turn on Remote control API and set a password. Tacktab shows the tablet's address there.",
         "data": {
