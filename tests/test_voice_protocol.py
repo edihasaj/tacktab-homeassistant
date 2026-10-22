@@ -46,6 +46,18 @@ def test_connect_contract_accepts_primary_slot() -> None:
     assert validate_message(CONNECT)["install_id"] == CONNECT["install_id"]
 
 
+def test_protocol_two_accepts_remote_speaker_but_v1_rejects_it() -> None:
+    remote = deepcopy(CONNECT)
+    remote["protocol"] = 2
+    remote["slots"][0]["output"] = "ha_media_player"
+    remote["slots"][0]["media_player_entity_id"] = "media_player.kitchen"
+    assert validate_message(remote)["protocol"] == 2
+
+    remote["protocol"] = 1
+    with pytest.raises(VoiceProtocolError, match="Remote speaker output requires voice protocol 2"):
+        validate_message(remote)
+
+
 @pytest.mark.parametrize(
     ("path", "value"),
     [

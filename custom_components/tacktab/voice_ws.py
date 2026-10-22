@@ -15,7 +15,7 @@ from .voice_setup import async_ensure_voice_entry
 from .const import REALTIME_ENABLED
 
 _COMMANDS = (
-    "connect", "configure", "status", "snapshot", "claim", "run", "audio_end", "cancel", "ack", "timer_action"
+    "connect", "configure", "status", "snapshot", "claim", "run", "audio_end", "cancel", "cancel_output", "ack", "timer_action"
 )
 _REALTIME_COMMANDS = (
     "configure_provider", "configure_slot", "catalog", "start", "audio", "audio_end", "playback", "interrupt", "stop"

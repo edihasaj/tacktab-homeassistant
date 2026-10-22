@@ -66,7 +66,8 @@ async def _start_run(device: VoiceDevice, run: VoiceRun, msg: dict[str, Any]) ->
     except TimeoutError:
         session.emit({"event": "pipeline", "run_id": run.run_id, "slot_id": run.slot_id, "core": {"type": "error", "timestamp": "", "data": {"code": "timeout"}}})
     finally:
-        session.runs.pop(run.run_id, None)
+        if session.runs.get(run.run_id) is run:
+            session.runs.pop(run.run_id, None)
         from .voice_bridge import async_get_bridge
 
         async_get_bridge(device.hass).release_media_lease(session, run.run_id)
@@ -96,7 +97,11 @@ class TacktabAssistSatellite(AssistSatelliteEntity):
 
     @property
     def supported_features(self) -> AssistSatelliteEntityFeature:
-        if not self.slot.enabled or not self.device.status.playback_ready or self.device.capabilities is None:
+        if (
+            not self.slot.enabled
+            or self.device.capabilities is None
+            or (self.slot.output == "local" and not self.device.status.playback_ready)
+        ):
             return AssistSatelliteEntityFeature(0)
         features = AssistSatelliteEntityFeature(0)
         if self.device.capabilities.announcements:
@@ -119,12 +124,20 @@ class TacktabAssistSatellite(AssistSatelliteEntity):
 
     async def async_announce(self, announcement: AssistSatelliteAnnouncement) -> None:
         session = self._session()
-        await session.play(slot_id=self.slot.slot_id, kind="announcement", message=announcement.message, media_id=announcement.media_id, preannounce_media_id=announcement.preannounce_media_id, listen_after=False)
+        await session.play(
+            slot_id=self.slot.slot_id, kind="announcement", message=announcement.message,
+            media_id=announcement.media_id, preannounce_media_id=announcement.preannounce_media_id,
+            listen_after=False, before_finished=self.tts_response_finished,
+        )
 
     async def async_start_conversation(self, announcement: AssistSatelliteAnnouncement) -> None:
         session = self._session()
         kind = "question" if self._ask_question_future is not None else "start_conversation"
-        await session.play(slot_id=self.slot.slot_id, kind=kind, message=announcement.message, media_id=announcement.media_id, preannounce_media_id=announcement.preannounce_media_id, listen_after=True)
+        await session.play(
+            slot_id=self.slot.slot_id, kind=kind, message=announcement.message,
+            media_id=announcement.media_id, preannounce_media_id=announcement.preannounce_media_id,
+            listen_after=True, before_finished=self.tts_response_finished,
+        )
 
     @callback
     def on_pipeline_event(self, event: PipelineEvent) -> None:
@@ -161,9 +174,12 @@ class TacktabAssistSatellite(AssistSatelliteEntity):
                     preannounce_media_id=None,
                     listen_after=listen_after,
                     run_id=run_id,
+                    before_finished=self.tts_response_finished,
                 )
         finally:
             self._response_tasks.pop(run_id, None)
+            # Local playback completes through the native ACK path; remote
+            # output calls this before its terminal protocol event.
             self.tts_response_finished()
 
     async def async_wait_response(self, session, run_id: str) -> None:

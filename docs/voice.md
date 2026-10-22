@@ -12,8 +12,9 @@ Only one slot may own the tablet microphone or local output at a time.
 ## Wire summary
 
 Clients begin with `tacktab/voice/connect`, then send `configure`, `status`,
-`snapshot`, `claim`, `run`, PCM binary frames, `audio_end`, `cancel`, `ack`, or
-`timer_action`. All JSON commands reject unknown fields. The bridge returns
+`snapshot`, `claim`, `run`, PCM binary frames, `audio_end`, `cancel`,
+`cancel_output` (protocol 2), `ack`, or `timer_action`. All JSON commands reject
+unknown fields. The bridge returns
 standard HA result/error envelopes and sends subscription events: `snapshot`,
 `state`, `pipeline`, `play`, `cancel_action`, `timer`, `claim_result`, and
 `session_closed`.
@@ -25,10 +26,11 @@ single-use grant valid for two seconds. Audio is PCM16 LE, 16 kHz mono, with a
 32 KiB frame cap, a two-second queued-audio cap, and a 60-second utterance cap.
 
 Native playback is acknowledged with `ack`; Home Assistant announcement,
-conversation, and question services wait for that physical completion. Remote
-media-player output remains unavailable until its provider has a reliable
-completion signal, so the bridge returns `unsupported_output` instead of
-claiming completion.
+conversation, and question services wait for that physical completion. Protocol
+2 can instead route a slot to an HA `media_player`; it reports the separate
+`remote_playback` lifecycle only after observing the speaker start and finish.
+See [remote-output.md](remote-output.md) for its strict event contract and
+completion requirements. Protocol 1 remains local-output only.
 
 Timers use one HA `async_register_timer_handler` per tablet device. Timer
 changes are authoritative Core events. Finished timer records remain in the

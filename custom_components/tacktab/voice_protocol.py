@@ -1,4 +1,4 @@
-"""Strict validation for the frozen Tacktab voice websocket v1 contract."""
+"""Strict validation for the Tacktab voice websocket protocol versions 1 and 2."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from uuid import UUID
 
 from .voice_models import SlotConfig, VoiceCapabilities, VoiceStatus, WakeWord
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+SUPPORTED_PROTOCOLS = frozenset((1, 2))
 PREFIX = "tacktab/voice/"
 SLOT_IDS = frozenset(("primary", "secondary"))
 MIC_PERMISSIONS = frozenset(("granted", "denied", "undetermined", "restricted"))
@@ -80,7 +81,7 @@ def parse_capabilities(value: Any) -> VoiceCapabilities:
     return VoiceCapabilities(**obj)  # type: ignore[arg-type]
 
 
-def parse_slots(value: Any) -> tuple[SlotConfig, ...]:
+def parse_slots(value: Any, *, allow_remote_output: bool = True) -> tuple[SlotConfig, ...]:
     if type(value) is not list or not 1 <= len(value) <= 2:
         _fail()
     slots: list[SlotConfig] = []
@@ -98,6 +99,8 @@ def parse_slots(value: Any) -> tuple[SlotConfig, ...]:
         if output == "local" and media_player is not None:
             _fail()
         if output == "ha_media_player":
+            if not allow_remote_output:
+                _fail("Remote speaker output requires voice protocol 2", "unsupported_protocol")
             _string(media_player)
         if output not in ("local", "ha_media_player"):
             _fail()
@@ -139,6 +142,7 @@ def validate_message(msg: Any) -> dict[str, Any]:
         "run": (common | {"epoch", "run_id", "slot_id", "trigger", "pipeline_id"}, {"grant_id", "wake_word_phrase"}),
         "audio_end": (common | {"epoch", "run_id"}, set()),
         "cancel": (common | {"epoch", "run_id"}, set()),
+        "cancel_output": (common | {"epoch", "action_id"}, set()),
         "ack": (common | {"epoch", "action_id", "status"}, {"error"}),
         "timer_action": (common | {"epoch", "request_id", "timer_id", "action"}, {"seconds"}),
     }
@@ -146,7 +150,7 @@ def validate_message(msg: Any) -> dict[str, Any]:
         _fail()
     obj = dict(_strict_object(msg, *specs[command]))
     if command == "connect":
-        if obj["protocol"] != PROTOCOL_VERSION:
+        if obj["protocol"] not in SUPPORTED_PROTOCOLS:
             _fail("Unsupported voice protocol", "unsupported_protocol")
         _uuid(obj["install_id"])
         _string(obj["name"], maximum=100)
@@ -155,7 +159,7 @@ def validate_message(msg: Any) -> dict[str, Any]:
             _fail()
         parse_capabilities(obj["capabilities"])
         parse_status(obj["status"])
-        parse_slots(obj["slots"])
+        parse_slots(obj["slots"], allow_remote_output=obj["protocol"] >= 2)
         return obj
     _uuid(obj["epoch"])
     if command == "configure":
@@ -165,6 +169,8 @@ def validate_message(msg: Any) -> dict[str, Any]:
         parse_status(obj["status"])
     elif command in ("audio_end", "cancel"):
         _uuid(obj["run_id"])
+    elif command == "cancel_output":
+        _uuid(obj["action_id"])
     elif command == "claim":
         _uuid(obj["claim_id"])
         if obj["slot_id"] not in SLOT_IDS:

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tacktab.app/schemas/voice/remote-output-v2.json",
+  "title": "Tacktab protocol 2 remote playback event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["epoch", "seq", "event", "action_id", "run_id", "slot_id", "kind", "phase", "message", "listen_after", "error"],
+  "properties": {
+    "epoch": {"type": "string", "format": "uuid"},
+    "seq": {"type": "integer", "minimum": 1},
+    "event": {"const": "remote_playback"},
+    "action_id": {"type": "string", "format": "uuid"},
+    "run_id": {"type": ["string", "null"], "format": "uuid"},
+    "slot_id": {"enum": ["primary", "secondary"]},
+    "kind": {"enum": ["response", "announcement", "start_conversation", "question"]},
+    "phase": {"enum": ["started", "finished", "failed"]},
+    "message": {"type": "string", "maxLength": 500, "pattern": "^[^\\u0000-\\u001F\\u007F]*$"},
+    "listen_after": {"type": "boolean"},
+    "error": {"type": ["null", "string"], "enum": [null, "remote_output_failed", "unsupported_output", "timeout"]}
+  }
+}

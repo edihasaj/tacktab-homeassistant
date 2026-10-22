@@ -45,6 +45,14 @@ class PendingAction:
 
 
 @dataclass(slots=True)
+class RemoteOutputAction:
+    """A v2 action which native may cancel without a microphone run."""
+
+    output: Any | None = None
+    cancelled: bool = False
+
+
+@dataclass(slots=True)
 class VoiceRun:
     run_id: str
     slot_id: str
@@ -108,6 +116,7 @@ class VoiceSession:
         subscription_id: int,
         binary_handler_id: int,
         unsub_binary: Callable[[], None],
+        protocol: int,
     ) -> None:
         self.hass = hass
         self.device = device
@@ -115,12 +124,15 @@ class VoiceSession:
         self.subscription_id = subscription_id
         self.binary_handler_id = binary_handler_id
         self._unsub_binary = unsub_binary
+        self.protocol = protocol
         self.epoch = str(uuid4())
         self.seq = 0
         self.runs: dict[str, VoiceRun] = {}
         self.actions: dict[str, PendingAction] = {}
         self.completed_actions: OrderedDict[str, str] = OrderedDict()
         self.follow_up_tasks: dict[str, asyncio.Task[None]] = {}
+        self.remote_outputs: dict[str, Any] = {}
+        self.remote_actions: dict[str, RemoteOutputAction] = {}
         self.closed = False
 
     @property
@@ -150,6 +162,12 @@ class VoiceSession:
             self.emit({"event": "session_closed", "reason": reason})
         self.closed = True
         self._unsub_binary()
+        for action in self.remote_actions.values():
+            action.cancelled = True
+        for output in self.remote_outputs.values():
+            output.cancel()
+        self.remote_outputs.clear()
+        self.remote_actions.clear()
         if controller := self.hass.data.get("voice_realtime"):
             await controller.async_close_for_session(self, reason)
         for action in self.actions.values():
@@ -217,19 +235,33 @@ class VoiceSession:
     async def play(
         self, *, slot_id: str, kind: str, message: str, media_id: str, preannounce_media_id: str | None,
         listen_after: bool, run_id: str | None = None, timeout: int = ACTION_TIMEOUT_SECONDS,
+        before_finished: Callable[[], None] | None = None,
     ) -> None:
-        if self.closed or not self.device.status.playback_ready:
+        slot = self.device.slot(slot_id)
+        if self.closed or (slot.output == "local" and not self.device.status.playback_ready):
             raise VoiceBridgeError("playback_unavailable", "Playback is unavailable")
         if self.device.capabilities is None:
             raise VoiceBridgeError("playback_unavailable", "Voice capabilities are unavailable")
-        if self.device.slot(slot_id).output == "ha_media_player":
-            raise VoiceBridgeError("unsupported_output", "Remote speaker completion is unavailable")
-        if listen_after and (not self.device.slot(slot_id).enabled or not self.device.status.microphone_ready):
+        if listen_after and (not slot.enabled or not self.device.status.microphone_ready):
             raise VoiceBridgeError("mic_permission", "Microphone is unavailable for a follow-up")
         if kind == "announcement" and not self.device.capabilities.announcements:
             raise VoiceBridgeError("playback_unavailable", "Announcements are unavailable")
         if kind in ("start_conversation", "question") and not self.device.capabilities.start_conversation:
             raise VoiceBridgeError("playback_unavailable", "Conversation prompts are unavailable")
+        if slot.output == "ha_media_player":
+            if self.protocol < 2:
+                raise VoiceBridgeError("unsupported_output", "Remote speaker output requires voice protocol 2")
+            await self._play_remote(
+                slot_id=slot_id,
+                kind=kind,
+                message=message,
+                media_id=media_id,
+                preannounce_media_id=preannounce_media_id,
+                listen_after=listen_after,
+                run_id=run_id,
+                before_finished=before_finished,
+            )
+            return
         action_id = str(uuid4())
         lease_owner = run_id or action_id
         bridge = async_get_bridge(self.hass)
@@ -263,6 +295,152 @@ class VoiceSession:
                 self.completed_actions.popitem(last=False)
             if run_id is None:
                 bridge.release_media_lease(self, lease_owner)
+
+    async def _play_remote(
+        self,
+        *,
+        slot_id: str,
+        kind: str,
+        message: str,
+        media_id: str,
+        preannounce_media_id: str | None,
+        listen_after: bool,
+        run_id: str | None,
+        before_finished: Callable[[], None] | None,
+    ) -> None:
+        """Play through HA and publish only observed remote lifecycle events."""
+        from .voice_output import RemoteOutputError, RemotePlayback
+
+        slot = self.device.slot(slot_id)
+        assert slot.media_player_entity_id is not None
+        # The event is UI text, not an arbitrary media or transcript channel.
+        # Keep it plain and bounded even when another HA integration supplied it.
+        event_message = "".join(
+            char for char in message if ord(char) >= 32 and ord(char) != 127
+        )
+        event_message = " ".join(event_message.split())[:500]
+        action_id = str(uuid4())
+        owner = run_id or action_id
+        bridge = async_get_bridge(self.hass)
+        bridge.acquire_media_lease(self, owner)
+        future: asyncio.Future[None] = self.hass.loop.create_future()
+        self.actions[action_id] = PendingAction(future, slot_id, kind)
+        action = RemoteOutputAction()
+        self.remote_actions[action_id] = action
+        context_msg = self.runs.get(run_id).context_message if run_id in self.runs else {"id": self.subscription_id}
+        context = self.connection.context(context_msg)
+        emitted_started = False
+
+        def emit_started() -> None:
+            nonlocal emitted_started
+            if emitted_started:
+                return
+            emitted_started = True
+            self.emit({
+                "event": "remote_playback", "action_id": action_id, "run_id": run_id,
+                "slot_id": slot_id, "kind": kind, "phase": "started", "message": event_message,
+                "listen_after": listen_after, "error": None,
+            })
+
+        async def play_media_segment(segment_media_id: str) -> None:
+            output = RemotePlayback(
+                self.hass,
+                slot.media_player_entity_id,
+                segment_media_id,
+                context=context,
+                on_started=emit_started,
+            )
+            action.output = output
+            self.remote_outputs[action_id] = output
+            try:
+                await output.async_play()
+            finally:
+                action.output = None
+                if self.remote_outputs.get(action_id) is output:
+                    self.remote_outputs.pop(action_id, None)
+
+        try:
+            failed: RemoteOutputError | None = None
+            try:
+                # Keep the official Assist preannounce audible on a remote slot as
+                # a separate, observed media action before its actual prompt.
+                async with asyncio.timeout(ACTION_TIMEOUT_SECONDS):
+                    if preannounce_media_id is not None:
+                        await play_media_segment(preannounce_media_id)
+                        if action.cancelled:
+                            raise RemoteOutputError("remote_output_failed", "Remote output cancelled")
+                    await play_media_segment(media_id)
+                    if action.cancelled:
+                        raise RemoteOutputError("remote_output_failed", "Remote output cancelled")
+            except RemoteOutputError as err:
+                failed = err
+            except TimeoutError:
+                failed = RemoteOutputError("timeout", "Remote speaker did not report completion")
+            except asyncio.CancelledError:
+                output = self.remote_outputs.get(action_id)
+                if output is not None:
+                    output.cancel()
+                raise
+            finally:
+                self.remote_outputs.pop(action_id, None)
+
+            if failed is not None:
+                if before_finished is not None:
+                    before_finished()
+                bridge.release_media_lease(self, owner)
+                self.completed_actions[action_id] = "failed"
+                self.emit({
+                    "event": "remote_playback", "action_id": action_id, "run_id": run_id,
+                    "slot_id": slot_id, "kind": kind, "phase": "failed", "message": event_message,
+                    "listen_after": False, "error": failed.code,
+                })
+                raise VoiceBridgeError(failed.code, failed.message)
+
+            # Core must be idle and the shared output lease must be free before the
+            # event which allows native to begin a follow-up capture.
+            if before_finished is not None:
+                before_finished()
+            bridge.release_media_lease(self, owner)
+            # The pipeline task may still be unwinding its response waiter. It
+            # must not make the just-authorized follow-up look busy.
+            if run_id is not None and run_id in self.runs:
+                self.runs.pop(run_id, None)
+            self._enable_follow_up(slot_id, listen_after)
+            self.completed_actions[action_id] = "finished"
+            self.emit({
+                "event": "remote_playback", "action_id": action_id, "run_id": run_id,
+                "slot_id": slot_id, "kind": kind, "phase": "finished", "message": event_message,
+                "listen_after": listen_after, "error": None,
+            })
+        finally:
+            # Cancellation can interrupt a canonical service without a voice
+            # run, so this cleanup must not rely on Assist's run-finally path.
+            self.remote_outputs.pop(action_id, None)
+            self.remote_actions.pop(action_id, None)
+            self.actions.pop(action_id, None)
+            bridge.release_media_lease(self, owner)
+
+    def _enable_follow_up(self, slot_id: str, listen_after: bool) -> None:
+        if not listen_after:
+            return
+        self.device.follow_up_until[slot_id] = time.monotonic() + 15
+        prior = self.follow_up_tasks.pop(slot_id, None)
+        if prior is not None:
+            prior.cancel()
+        self.follow_up_tasks[slot_id] = self.hass.async_create_task(
+            self._expire_follow_up(slot_id), f"tacktab_voice_follow_up_{slot_id}"
+        )
+
+    async def cancel_remote_output(self, action_id: str) -> None:
+        """Cancel one v2 action without confusing it with a native ACK."""
+        if self.protocol < 2:
+            raise VoiceBridgeError("unsupported_protocol", "Remote output cancellation requires voice protocol 2")
+        action = self.remote_actions.get(action_id)
+        if action is None or action.cancelled:
+            raise VoiceBridgeError("unknown_action", "Remote playback action is not active")
+        action.cancelled = True
+        if action.output is not None:
+            await action.output.async_cancel_owned_media()
 
     async def _expire_follow_up(self, slot_id: str) -> None:
         await asyncio.sleep(15)
@@ -362,6 +540,8 @@ class VoiceBridge:
             slots = parse_slots(msg["slots"])
             device = VoiceDevice(self.hass, install_id, msg["name"], msg["platform"], slots)
             self.devices[install_id] = device
+        if msg["protocol"] == 1 and any(slot.output == "ha_media_player" for slot in device.slots):
+            raise VoiceBridgeError("unsupported_protocol", "Remote speaker output requires voice protocol 2")
         self._validate_pipelines(device, device.slots)
         return device
 
@@ -372,10 +552,10 @@ class VoiceBridge:
         device.status = parse_status(msg["status"])
         device.capabilities = VoiceCapabilities(**msg["capabilities"])
         binary_id, unsub_binary = connection.async_register_binary_handler(lambda h, c, payload: session.on_binary(h, c, payload))
-        session = VoiceSession(self.hass, device, connection, msg["id"], binary_id, unsub_binary)
+        session = VoiceSession(self.hass, device, connection, msg["id"], binary_id, unsub_binary, msg["protocol"])
         device.session = session
         connection.subscriptions[msg["id"]] = lambda: self.hass.async_create_task(session.close("unloaded", emit=False), "tacktab_voice_disconnect")
-        connection.send_result(msg["id"], {"protocol": 1, "epoch": session.epoch, "binary_handler_id": binary_id, "snapshot_seq": 0, "snapshot": device.snapshot()})
+        connection.send_result(msg["id"], {"protocol": msg["protocol"], "epoch": session.epoch, "binary_handler_id": binary_id, "snapshot_seq": 0, "snapshot": device.snapshot()})
 
     async def handle(self, connection: ActiveConnection, raw: dict[str, Any]) -> None:
         msg = validate_message(raw)
@@ -425,6 +605,9 @@ class VoiceBridge:
                 session.runs.pop(run.run_id, None)
                 self.release_media_lease(session, run.run_id)
             connection.send_result(msg["id"], self._mutation_result(session.device))
+        elif command == "cancel_output":
+            await session.cancel_remote_output(msg["action_id"])
+            connection.send_result(msg["id"], self._mutation_result(session.device))
         elif command == "run":
             resolved_pipeline = await self._run_command(session, msg)
             connection.send_result(msg["id"], {"run_id": msg["run_id"], "slot_id": msg["slot_id"], "pipeline_id": resolved_pipeline})
@@ -443,7 +626,7 @@ class VoiceBridge:
                 raise VoiceBridgeError("config_conflict", "Voice configuration changed")
             if session.runs or session.actions or session.device.media_lease is not None or getattr(session.device, "realtime_active", False):
                 raise VoiceBridgeError("busy", "Voice device is busy")
-            slots = parse_slots(msg["slots"])
+            slots = parse_slots(msg["slots"], allow_remote_output=session.protocol >= 2)
             self._validate_pipelines(session.device, slots)
             from .assist_satellite import async_reconcile_slots as reconcile_satellites
             from .select import async_reconcile_slots as reconcile_selects

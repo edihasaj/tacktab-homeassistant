@@ -14,6 +14,7 @@ test = [
   "pyspeex-noise==1.0.2",
   "mutagen==1.48.1",
   "pytest-homeassistant-custom-component==0.13.373",
+  "jsonschema==4.26.0",
 ]
 
 [tool.pytest.ini_options]
