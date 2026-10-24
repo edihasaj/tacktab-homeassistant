@@ -25,14 +25,14 @@ def parse_command(message: dict[str, Any]) -> dict[str, Any]:
     common = {"id", "type", "epoch"}
     if command == "configure_provider":
         _keys(message, common | {"provider", "key_action"}, {"api_key"})
-        if message["provider"] not in {"openai", "xai", "gemini"} or message["key_action"] not in {"keep", "replace", "clear"}: _fail()
+        if message["provider"] not in {"xai", "gemini"} or message["key_action"] not in {"keep", "replace", "clear"}: _fail()
         if (message["key_action"] == "replace") != (isinstance(message.get("api_key"), str) and bool(message.get("api_key").strip())): _fail()
     elif command == "configure_slot":
         _keys(message, common | {"slot_id", "expected_config_revision", "config"})
         if message["slot_id"] not in {"primary", "secondary"} or not isinstance(message["expected_config_revision"], int) or not isinstance(message["config"], dict): _fail()
     elif command == "catalog":
         _keys(message, common | {"provider"})
-        if message["provider"] not in {"openai", "xai", "gemini"}: _fail()
+        if message["provider"] not in {"xai", "gemini"}: _fail()
     elif command == "start":
         _keys(message, common | {"slot_id", "trigger"}, {"grant_id", "wake_word_phrase"})
         if message["slot_id"] not in {"primary", "secondary"} or message["trigger"] not in {"button", "follow_up", "wake_word"}: _fail()

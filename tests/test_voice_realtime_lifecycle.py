@@ -150,7 +150,7 @@ async def test_close_failure_always_releases_lease_and_does_not_claim_memory() -
     controller, run, _connection, bridge = _runtime(_Provider(close_error=True))
     run.history = [{"role": "user", "text": "hello"}]
     run.history_bytes = 32
-    run.memory_key = ("user", "install", "primary", "openai", "model", "voice")
+    run.memory_key = ("user", "install", "primary", "xai", "model", "voice")
 
     await controller.close(run, "stopped", False)
 
@@ -332,7 +332,7 @@ async def test_slot_configuration_cas_locks_out_concurrent_start_and_update(monk
     async def prepared_store(*_args):
         return None
 
-    entry = SimpleNamespace(entry_id="entry", data={"realtime_slots": {"primary": {"mode": "realtime"}}})
+    entry = SimpleNamespace(entry_id="entry", data={"realtime_slots": {"primary": {"mode": "realtime", "provider": "xai"}}})
     device = SimpleNamespace(
         install_id="install",
         entry=entry,
@@ -411,7 +411,7 @@ async def test_real_paired_websocket_prepares_store_catalogs_and_binds_assist_to
     device = bridge.devices["00000000-0000-4000-8000-000000000102"]
     connection = device.session.connection
     controller = async_setup_realtime(hass, bridge)
-    catalog = await controller.catalog(device.entry, "openai")
+    catalog = await controller.catalog(device.entry, "xai")
     assert catalog["key_configured"] is False
     assert catalog["source"] == "bundled"
     assert not key_transport_allowed(hass, connection, device.entry)
@@ -419,7 +419,7 @@ async def test_real_paired_websocket_prepares_store_catalogs_and_binds_assist_to
         "id": 2,
         "type": "tacktab/realtime/configure_provider",
         "epoch": device.session.epoch,
-        "provider": "openai",
+        "provider": "xai",
         "key_action": "replace",
         "api_key": "test-key",
     }
@@ -435,7 +435,7 @@ async def test_real_paired_websocket_prepares_store_catalogs_and_binds_assist_to
         if response.get("id") == 2:
             break
     assert response["success"] is True
-    assert response["result"] == {"provider": "openai", "key_configured": True}
+    assert response["result"] == {"provider": "xai", "key_configured": True}
 
     tools = await async_bind_tools(hass, connection, device.device_id, ("assist",), None)
     assert tools.api is not None
@@ -465,8 +465,8 @@ async def test_startup_bind_failure_closes_provider_and_releases_lease(monkeypat
     bridge = _Bridge(session)
     controller = RealtimeController(_Hass(), bridge)
     connection = _Connection()
-    entry = SimpleNamespace(data={"realtime_provider_keys": {"openai": "key"}, "realtime_slots": {"primary": {"mode": "realtime"}}})
-    monkeypatch.setattr(realtime, "OpenAIRealtimeProvider", ClosingProvider)
+    entry = SimpleNamespace(data={"realtime_provider_keys": {"xai": "key"}, "realtime_slots": {"primary": {"mode": "realtime", "provider": "xai"}}})
+    monkeypatch.setattr(realtime, "XAIRealtimeProvider", ClosingProvider)
     monkeypatch.setattr(realtime, "async_bind_tools", bind_failure)
     monkeypatch.setattr(realtime, "async_prepare_provider_store", prepared_store)
 
@@ -482,7 +482,7 @@ async def test_startup_bind_failure_closes_provider_and_releases_lease(monkeypat
 async def test_retained_memory_is_timer_evicted_and_closed_forget_is_idempotent() -> None:
     controller, run, connection, _bridge = _runtime()
     run.setting.memory_timeout_ms = 1
-    run.memory_key = ("user", "install", "primary", "openai", "model", "voice")
+    run.memory_key = ("user", "install", "primary", "xai", "model", "voice")
     run.history = [{"role": "user", "text": "remember"}]
     run.history_bytes = 40
     await controller.close(run, "stopped", False)

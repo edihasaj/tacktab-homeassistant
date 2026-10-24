@@ -11,7 +11,6 @@ import pytest
 
 from custom_components.tacktab.voice_realtime_config import SlotRealtimeConfig, parse_slot_config
 from custom_components.tacktab.voice_realtime_gemini import GeminiRealtimeProvider
-from custom_components.tacktab.voice_realtime_openai import OpenAIRealtimeProvider
 from custom_components.tacktab.voice_realtime_providers import ProviderConfig, StatefulResampler, ToolSpec
 from custom_components.tacktab.voice_realtime_protocol import RealtimeProtocolError, parse_command
 from custom_components.tacktab.voice_realtime_catalog import async_catalog
@@ -39,13 +38,12 @@ class Client:
 
 
 @pytest.mark.parametrize(("adapter", "provider", "model", "voice", "expected_rate"), [
-    (OpenAIRealtimeProvider, "openai", "gpt-realtime", "marin", 24000),
     (XAIRealtimeProvider, "xai", "grok-voice-3.0", "eve", 16000),
 ])
-async def test_openai_shape_and_xai_shape(monkeypatch, adapter, provider, model, voice, expected_rate):
+async def test_xai_setup_shape(monkeypatch, adapter, provider, model, voice, expected_rate):
     socket, client = Socket(), Client(Socket())
     client.socket = socket
-    module = "custom_components.tacktab.voice_realtime_openai" if provider == "openai" else "custom_components.tacktab.voice_realtime_xai"
+    module = "custom_components.tacktab.voice_realtime_xai"
     monkeypatch.setattr(f"{module}.async_get_clientsession", lambda hass: client)
     instance = adapter(object())
     await instance.connect(ProviderConfig(provider, model, voice, "never-log-this"), [ToolSpec("intent__Timer", "timer", {"type": "object"})], "home prompt")
@@ -77,10 +75,9 @@ async def test_gemini_setup_and_event_fixture(monkeypatch):
 
 
 @pytest.mark.parametrize(("adapter", "module", "provider", "model", "voice"), [
-    (OpenAIRealtimeProvider, "custom_components.tacktab.voice_realtime_openai", "openai", "gpt-realtime", "marin"),
     (XAIRealtimeProvider, "custom_components.tacktab.voice_realtime_xai", "xai", "grok-voice-3.0", "eve"),
 ])
-async def test_openai_shape_tool_interrupt_and_cleanup_fixture(monkeypatch, adapter, module, provider, model, voice):
+async def test_xai_tool_interrupt_and_cleanup_fixture(monkeypatch, adapter, module, provider, model, voice):
     audio = base64.b64encode(b"\x01\x00" * 16).decode()
     socket = Socket([
         {"type": "session.updated"},
@@ -96,27 +93,11 @@ async def test_openai_shape_tool_interrupt_and_cleanup_fixture(monkeypatch, adap
     await instance.send_tool_result("call-1", "timer", {"ok": True}, False)
     await instance.continue_after_tools()
     await instance.interrupt("item-1", 480)
-    expected = ["conversation.item.create", "response.create", "conversation.item.truncate"] if provider == "openai" else ["conversation.item.create", "response.create", "response.cancel", "conversation.item.truncate"]
+    expected = ["conversation.item.create", "response.create", "response.cancel", "conversation.item.truncate"]
     assert [message["type"] for message in socket.sent[-len(expected):]] == expected
     assert socket.sent[-1]["audio_end_ms"] == 20
     await instance.close()
     assert socket.closed
-
-
-async def test_openai_completed_response_truncates_without_cancel_and_finalizes_user_transcript(monkeypatch):
-    socket = Socket([
-        {"type": "session.updated"}, {"type": "response.created", "response": {"id": "resp-1"}},
-        {"type": "conversation.item.input_audio_transcription.completed", "item_id": "user-1", "transcript": "turn on lights"},
-        {"type": "response.done", "response": {"id": "resp-1"}},
-    ])
-    monkeypatch.setattr("custom_components.tacktab.voice_realtime_openai.async_get_clientsession", lambda hass: Client(socket))
-    instance = OpenAIRealtimeProvider(object())
-    await instance.connect(ProviderConfig("openai", "gpt-realtime", "marin", "key"), [], "prompt")
-    events = [event async for event in instance.events()]
-    assert events[1].role == "user" and events[1].final and events[1].operation == "replace"
-    assert socket.sent[0]["session"]["audio"]["input"]["transcription"]["model"] == "gpt-4o-mini-transcribe"
-    await instance.interrupt("assistant-item", 240)
-    assert socket.sent[-1]["type"] == "conversation.item.truncate"
 
 
 async def test_gemini_activity_and_late_turn_complete_finalizes_buffered_transcripts(monkeypatch):
@@ -151,7 +132,6 @@ async def test_xai_completed_transcription_replaces_partial(monkeypatch):
 
 
 @pytest.mark.parametrize(("adapter", "module", "provider", "model", "voice"), [
-    (OpenAIRealtimeProvider, "custom_components.tacktab.voice_realtime_openai", "openai", "gpt-realtime", "marin"),
     (XAIRealtimeProvider, "custom_components.tacktab.voice_realtime_xai", "xai", "grok-voice-3.0", "eve"),
 ])
 async def test_resume_replays_complete_tool_call_and_output_without_execution(monkeypatch, adapter, module, provider, model, voice):
@@ -165,17 +145,6 @@ async def test_resume_replays_complete_tool_call_and_output_without_execution(mo
     assert json.loads(call["item"]["arguments"]) == {"minutes": 2}
     assert output["item"]["type"] == "function_call_output"
     assert json.loads(output["item"]["output"]) == {"result": {"timer": "tea"}, "error": True}
-
-
-async def test_openai_no_active_response_cancel_race_keeps_session_usable(monkeypatch):
-    socket = Socket([
-        {"type": "error", "error": {"code": "response_cancel_not_active"}},
-        {"type": "input_audio_buffer.speech_started"},
-    ])
-    monkeypatch.setattr("custom_components.tacktab.voice_realtime_openai.async_get_clientsession", lambda hass: Client(socket))
-    instance = OpenAIRealtimeProvider(object())
-    await instance.connect(ProviderConfig("openai", "gpt-realtime", "marin", "key"), [], "prompt")
-    assert [event.kind async for event in instance.events()] == ["speech_started"]
 
 
 def test_stateful_resampler_preserves_duration_across_uneven_chunks():
@@ -229,10 +198,10 @@ async def test_catalog_uses_independent_live_metadata_and_sanitized_fallback(mon
 
 
 async def test_catalog_failed_metadata_is_bundled_and_never_validates_a_saved_key(monkeypatch):
-    entry = type("Entry", (), {"data": {"realtime_provider_keys": {"openai": "key-never-returned"}}})()
+    entry = type("Entry", (), {"data": {"realtime_provider_keys": {"xai": "key-never-returned"}}})()
     async def get_json(*args, **kwargs): return None
     monkeypatch.setattr("custom_components.tacktab.voice_realtime_catalog._get_json", get_json)
-    result = await async_catalog(object(), entry, "openai")
+    result = await async_catalog(object(), entry, "xai")
     assert result["source"] == "bundled" and result["validated"] is False
 
 

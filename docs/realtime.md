@@ -7,7 +7,7 @@ read_when:
 
 # Optional realtime voice
 
-The next Tacktab mobile update can use OpenAI Realtime, xAI Voice or Gemini
+The next Tacktab mobile update can use xAI Voice or Gemini
 Live instead of an Assist pipeline for either voice slot. Home Assistant owns
 the provider connection. The tablet sends PCM16 mono at 16 kHz to HA and plays
 the returned PCM16 mono at 24 kHz. A regular Assist slot needs no provider key.
@@ -30,6 +30,12 @@ are stored in normal HA config-entry storage, which is not claimed to be
 encrypted. Keys are never returned to a tablet, included in public snapshots,
 or retained in mobile preferences. Replace and clear are explicit operations.
 Protect HA backups accordingly.
+
+OpenAI Realtime is no longer supported. On upgrade, saved OpenAI keys are
+removed from shared and legacy tablet storage, and former OpenAI slots return
+to Assist with their HA pipeline and unrelated preferences preserved. xAI is
+the inactive placeholder provider; switching to a cloud provider requires an
+explicit Realtime selection. Old OpenAI commands are rejected.
 
 Key changes require the actual HA WebSocket request to use TLS. Administrators
 may explicitly allow trusted local HTTP in the Voice satellite bridge options;

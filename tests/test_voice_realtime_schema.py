@@ -19,7 +19,7 @@ def event(kind: str, **fields: object) -> dict[str, object]:
 
 
 @pytest.mark.parametrize("payload", [
-    event("ready", provider="openai", model="gpt-realtime", voice="marin", input_format={"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1}, output_format={"codec": "pcm_s16le", "sample_rate": 24000, "channels": 1}),
+    event("ready", provider="xai", model="grok-voice-3.0", voice="eve", input_format={"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1}, output_format={"codec": "pcm_s16le", "sample_rate": 24000, "channels": 1}),
     event("audio", playback_id="playback-1", item_id="item-1", chunk_seq=0, audio="AAE=", frames=1),
     event("transcript", role="assistant", item_id="item-1", text="Done", operation="append", final=True),
     event("tool_state", call_id="call-1", state="completed"),
@@ -38,8 +38,13 @@ def test_missing_base_fields_are_rejected(validator: Draft202012Validator, field
 
 
 def test_subtype_rejects_unknown_fields_and_invalid_nested_format(validator: Draft202012Validator) -> None:
-    payload = event("ready", provider="openai", model="gpt-realtime", voice="marin", input_format={"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1}, output_format={"codec": "pcm_s16le", "sample_rate": 24000, "channels": 1})
+    payload = event("ready", provider="xai", model="grok-voice-3.0", voice="eve", input_format={"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1}, output_format={"codec": "pcm_s16le", "sample_rate": 24000, "channels": 1})
     unknown = copy.deepcopy(payload); unknown["unexpected"] = True
     assert list(validator.iter_errors(unknown))
     malformed = copy.deepcopy(payload); malformed["output_format"]["sample_rate"] = 16_001
     assert list(validator.iter_errors(malformed))
+
+
+def test_ready_event_rejects_retired_provider(validator: Draft202012Validator) -> None:
+    payload = event("ready", provider="openai", model="gpt-realtime", voice="marin", input_format={"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1}, output_format={"codec": "pcm_s16le", "sample_rate": 24000, "channels": 1})
+    assert list(validator.iter_errors(payload))

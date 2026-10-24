@@ -24,7 +24,7 @@
     },
     "ready": {
       "allOf": [{"$ref": "#/$defs/base"}, {"type": "object", "properties": {
-        "kind": {"const": "ready"}, "provider": {"enum": ["openai", "xai", "gemini"]}, "model": {"type": "string", "minLength": 1}, "voice": {"type": "string", "minLength": 1},
+        "kind": {"const": "ready"}, "provider": {"enum": ["xai", "gemini"]}, "model": {"type": "string", "minLength": 1}, "voice": {"type": "string", "minLength": 1},
         "input_format": {"$ref": "#/$defs/format"}, "output_format": {"$ref": "#/$defs/format"}
       }, "required": ["kind", "provider", "model", "voice", "input_format", "output_format"]}],
       "unevaluatedProperties": false
