@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from .voice_realtime_config import async_prepare_provider_store, RealtimeConfigError, get_slot, key_transport_allowed, parse_slot_config, provider_config, update_key, update_slot
 from .voice_realtime_gemini import GeminiRealtimeProvider
 from .voice_realtime_memory import RetainedContext, append_bounded, item_size
+from .voice_realtime_openai import OpenAIRealtimeProvider
 from .voice_realtime_protocol import RealtimeProtocolError, parse_command
 from .voice_realtime_providers import ProviderEvent, RealtimeProviderError
 from .voice_realtime_runtime import MAX_SESSION_SECONDS, RuntimeSession, async_end_audio, async_interrupt, async_playback, async_send_audio
@@ -169,7 +170,7 @@ class RealtimeController:
         owner = "realtime:" + str(uuid4())
         try: self.bridge.acquire_media_lease(bridge_session, owner)
         except Exception as exc: raise RealtimeProtocolError("busy", "Voice device is busy") from exc
-        provider = {"xai": XAIRealtimeProvider, "gemini": GeminiRealtimeProvider}[setting.provider](self.hass)
+        provider = {"openai": OpenAIRealtimeProvider, "xai": XAIRealtimeProvider, "gemini": GeminiRealtimeProvider}[setting.provider](self.hass)
         runtime = RuntimeSession(str(uuid4()), bridge_session, msg["slot_id"], setting, provider, owner)
         runtime.memory_key = self._memory_key(connection, bridge_session, setting, msg["slot_id"])
         self._purge_other_identities(runtime.memory_key)

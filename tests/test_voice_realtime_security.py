@@ -15,11 +15,11 @@ class Entries:
 
 def test_legacy_per_tablet_key_migrates_to_one_bootstrap_store_without_returning_value():
     bootstrap = SimpleNamespace(data={"voice_bridge_bootstrap": True})
-    tablet = SimpleNamespace(data={KEYS: {"xai": "legacy-secret"}})
+    tablet = SimpleNamespace(data={KEYS: {"openai": "legacy-secret"}})
     hass = SimpleNamespace(config_entries=Entries([bootstrap, tablet]))
-    status = key_status(tablet, "xai", hass)
-    assert status == {"provider": "xai", "key_configured": True}
-    assert bootstrap.data[KEYS]["xai"] == "legacy-secret"
+    status = key_status(tablet, "openai", hass)
+    assert status == {"provider": "openai", "key_configured": True}
+    assert bootstrap.data[KEYS]["openai"] == "legacy-secret"
     assert KEYS not in tablet.data
 
 

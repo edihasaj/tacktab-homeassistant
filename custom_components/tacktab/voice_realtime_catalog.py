@@ -9,6 +9,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .voice_realtime_config import RealtimeConfigError, api_key
 
 _FALLBACK = {
+    "openai": {"models": ("gpt-realtime", "gpt-realtime-2.1"), "voices": ("alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar")},
     "xai": {"models": ("grok-voice-3.0", "grok-voice-latest"), "voices": ("eve",)},
     "gemini": {"models": ("models/gemini-3.8-live",), "voices": ("Kore",)},
 }
@@ -38,7 +39,15 @@ async def async_catalog(hass: Any, entry: Any, provider: str) -> dict[str, Any]:
         return {"provider": provider, "key_configured": False, "models": list(fallback["models"]), "voices": list(fallback["voices"]), "source": "bundled", "checked_at": checked_at, "validated": False}
     auth = {"Authorization": f"Bearer {key}"}
     models: list[str] | None = None; voices: list[str] | None = None; live_success = False
-    if provider == "xai":
+    if provider == "openai":
+        payload = await _get_json(hass, "https://api.openai.com/v1/models", auth)
+        if isinstance(payload, dict):
+            live_success = True
+            available = {item.get("id") for item in payload.get("data", []) if isinstance(item, dict)}
+            models = [model for model in fallback["models"] if model in available]
+        # OpenAI Realtime voices are a documented curated list, not a models API.
+        voices = list(fallback["voices"])
+    elif provider == "xai":
         model_payload = await _get_json(hass, "https://api.x.ai/v1/models", auth)
         voice_payload = await _get_json(hass, "https://api.x.ai/v1/tts/voices", auth)
         if isinstance(model_payload, dict):

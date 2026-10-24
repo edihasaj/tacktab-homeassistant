@@ -26,10 +26,6 @@ PLATFORMS = [
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: TacktabConfigEntry) -> bool:
-    from .voice_realtime_config import migrate_removed_provider
-
-    for candidate in hass.config_entries.async_entries(DOMAIN):
-        migrate_removed_provider(hass, candidate)
     if is_voice_entry(entry):
         return await async_setup_voice_entry(hass, entry)
     client = TacktabClient(
