@@ -24,6 +24,8 @@ it. You only type the API password.
 
 The integration polls every 10 seconds. Each command's answer is the new state,
 so the dashboard updates straight away.
+Wi-Fi tablets sometimes miss a poll. The entities keep their last state through
+short gaps and become unavailable only after 60 seconds without an answer.
 
 ## Requirements
 

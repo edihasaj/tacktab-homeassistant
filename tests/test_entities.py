@@ -175,3 +175,40 @@ async def test_api_errors_do_not_expose_page_url_query_parameters(hass: HomeAssi
     assert str(error.value) == "request returned HTTP 500"
     assert private_page not in formatted_error
     assert encoded_page not in formatted_error
+
+
+async def test_short_poll_gaps_keep_state_then_long_gaps_go_unavailable(
+    hass: HomeAssistant, aioclient_mock, freezer
+) -> None:
+    """A missed Wi-Fi poll must not flip the tablet to unavailable."""
+    from datetime import timedelta
+
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    entry = await _setup(hass, aioclient_mock)
+    coordinator = entry.runtime_data
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{BASE}/status", exc=TimeoutError())
+
+    for _ in range(4):  # first miss at +10s, still failing at +40s
+        freezer.tick(timedelta(seconds=10))
+        await coordinator.async_refresh()
+    assert hass.states.get("switch.kitchen_tablet_screen").state == STATE_ON
+
+    freezer.tick(timedelta(seconds=35))  # +75s: 65 seconds since the first miss
+    await coordinator.async_refresh()
+    assert hass.states.get("switch.kitchen_tablet_screen").state == "unavailable"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{BASE}/status", json=STATUS)
+    freezer.tick(timedelta(seconds=10))
+    await coordinator.async_refresh()
+    assert hass.states.get("switch.kitchen_tablet_screen").state == STATE_ON
+
+    # The grace period restarts after a successful poll.
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{BASE}/status", exc=TimeoutError())
+    freezer.tick(timedelta(seconds=10))
+    await coordinator.async_refresh()
+    assert hass.states.get("switch.kitchen_tablet_screen").state == STATE_ON
+    async_fire_time_changed(hass)
