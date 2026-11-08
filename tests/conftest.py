@@ -1,5 +1,7 @@
 """Shared fixtures."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT
@@ -18,3 +20,10 @@ ENTRY_DATA = {CONF_HOST: HOST, CONF_PORT: PORT, CONF_PASSWORD: "s3cret-pw"}
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
     yield
+
+
+@pytest.fixture(autouse=True)
+def find_tablet():
+    """No tablet announces itself unless a test says so."""
+    with patch("custom_components.tacktab.coordinator.async_find_tablet", AsyncMock(return_value=None)) as mock:
+        yield mock

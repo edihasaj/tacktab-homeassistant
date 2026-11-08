@@ -36,8 +36,12 @@ class TacktabClient:
 
     def __init__(self, session: aiohttp.ClientSession, host: str, port: int, password: str) -> None:
         self._session = session
-        self._base = f"http://{host}:{port}/api"
+        self.set_address(host, port)
         self._headers = {"Authorization": f"Bearer {password}"}
+
+    def set_address(self, host: str, port: int) -> None:
+        """Follow the tablet to a new address (DHCP reassignment)."""
+        self._base = f"http://{host}:{port}/api"
 
     async def _request(self, method: str, path: str) -> dict[str, Any]:
         try:

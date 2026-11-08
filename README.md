@@ -97,6 +97,12 @@ Tacktab, and enter the address and password from Tacktab's settings.
 
 If you change the password in Tacktab, Home Assistant asks for the new one.
 
+If the router gives a tablet a new address, nothing needs reserving. When a
+tablet stops answering, Home Assistant looks it up by its Tacktab ID in the
+network announcements (at most once a minute), checks the ID at the new address,
+and saves it. The tablet must have Tacktab open with the Remote control API on;
+an iPad announces itself only while Tacktab is in the foreground.
+
 ## Examples
 
 Sleep the kitchen panel at night and wake it in the morning:
