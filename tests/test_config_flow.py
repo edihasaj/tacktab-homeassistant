@@ -173,3 +173,17 @@ async def test_reauth_updates_password(hass: HomeAssistant, aioclient_mock) -> N
     assert entry.data[CONF_PORT] == PORT
     await hass.async_block_till_done()
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_bootstrap_options_flow_keeps_the_trusted_local_http_choice(hass) -> None:
+    """Saving the options form must not wipe the option it just stored."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.tacktab.voice_setup import VOICE_BOOTSTRAP_KEY
+
+    entry = MockConfigEntry(domain="tacktab", unique_id="voice-bridge-bootstrap", data={VOICE_BOOTSTRAP_KEY: True})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"realtime_trusted_local_http": True})
+    assert result["type"] == "create_entry"
+    assert entry.options == {"realtime_trusted_local_http": True}

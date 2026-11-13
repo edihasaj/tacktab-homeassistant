@@ -82,6 +82,8 @@ class VoiceCapabilities:
     timers: bool
     local_wake_word: bool
     pcm16_16khz_mono: Literal[True]
+    # Declared only by apps that implement fleet voice profile sync (protocol 2).
+    voice_profile: bool = False
 
     def as_dict(self) -> dict[str, bool]:
         return {

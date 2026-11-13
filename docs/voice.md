@@ -140,3 +140,189 @@ automation:
         target:
           entity_id: media_player.kitchen_tv
 ```
+
+## Fleet voice profile
+
+Voice settings that should be the same on every tablet live in one **fleet
+voice profile** stored in Home Assistant (`.storage/tacktab.voice_profile`). A
+tablet opts in, chooses which groups to follow, and either applies what Home
+Assistant sends or pushes its own settings to the fleet. Per-device hardware
+settings are never shared.
+
+Requires protocol 2 and an app that declares the `voice_profile` capability.
+Older apps, and any client on protocol 1, connect exactly as before: they
+receive no profile field, no profile event, and the profile commands answer
+`unsupported_capability`.
+
+### Groups and keys
+
+Home Assistant validates the keys below with the same ranges the apps enforce.
+Keys it does not know are kept verbatim (see *Forward compatibility*).
+
+| Group | Keys |
+| --- | --- |
+| `voice` | `wake_engine` (`micro_wake_word`\|`open_wake_word`), `wake_word_1`, `wake_word_2` (may be `""`), `wake_sensitivity` 0–1, `wake_fine_tune` −10…10, `stop_fine_tune` −10…10, `stop_word_enabled`, `skip_chime_after_wake`, `follow_up_enabled`, `follow_up_delay_ms` 0–3000, `follow_up_chime` |
+| `appearance` | `appearance`, `skin_1`, `skin_2` (lowercase ids such as `glow_orb`), `theme` (`system`\|`light`\|`dark`), `background_dim` 0–0.85, `text_scale` 0.8–1.5, `reactive_activity_bar` |
+| `conversation` | `show_transcript`, `show_response`, `show_tool_activity`, `hide_sentiment_tags`, `retain_answer_seconds` 0–300 |
+| `timers` | `show_timers`, `show_timer_names`, `show_finished_timers`, `timer_scale` 0.75–1.5, `timer_alert_muted`, `speak_timer_finished` |
+| `chimes` | `chimes_enabled`, `chime_volume` 0–1, and per event `wake`, `done`, `error`, `timer`, `announcement`: `<event>_chime_id`, `<event>_chime_enabled`, `<event>_chime_volume` 0–1. Sound ids only; custom sound files are not synced. |
+
+Never synced (dropped, and listed in the update result's `dropped`):
+`arbitration_offset_db`, `arbitration_offset`, `microphone_gain`, `mic_gain`,
+`input_gain`, `device_name`, `name`, `area`, `area_id`, `device_id`,
+`install_id`, `access_token`, `home_assistant_url`, `pipeline_id(_2)`,
+`output_target(_2)`, `media_player_entity_id(_2)`, `enabled`, `muted`,
+`hands_free`, `announcements_enabled`, `background_listening`, and any key whose
+name contains `token`, `secret`, `password`, `credential`, `api_key` or
+`private_key`. The full list is in every `voice_profile_get` result as
+`excluded_keys`.
+
+### Negotiation
+
+The app adds `"voice_profile": true` to `capabilities` in `connect` (protocol 2
+only; `voice_profile: true` on protocol 1 is rejected `unsupported_protocol`).
+The field is optional, so apps that do not send it are unaffected. When it is
+negotiated, the connect result gains:
+
+```json
+"voice_profile": {
+  "revision": 12,
+  "supported_groups": ["voice", "appearance", "conversation", "timers", "chimes"],
+  "following": {"enabled": true, "groups": ["voice", "timers"]}
+}
+```
+
+Compare `revision` with the last revision the tablet applied; call
+`voice_profile_get` when it is newer.
+
+### `tacktab/voice/voice_profile_get`
+
+Request: `{"id", "type": "tacktab/voice/voice_profile_get", "epoch"}`. Result:
+
+```json
+{
+  "schema_version": 1,
+  "revision": 12,
+  "updated_at": "2026-11-13T10:15:00+00:00",
+  "updated_by": {"type": "tablet", "install_id": "…", "name": "Kitchen"},
+  "group_revisions": {"voice": 12, "appearance": 3, "conversation": 0, "timers": 9, "chimes": 0},
+  "groups": {"voice": {"wake_sensitivity": 0.4}, "appearance": {}, "conversation": {}, "timers": {}, "chimes": {}},
+  "supported_groups": ["voice", "appearance", "conversation", "timers", "chimes"],
+  "excluded_keys": ["area", "arbitration_offset_db", "…"],
+  "following": {"enabled": true, "groups": ["voice", "timers"]}
+}
+```
+
+`groups` holds every group; apply only the groups listed in `following.groups`.
+`updated_by` is `{"type": "tablet", "install_id", "name"}`,
+`{"type": "user", "user_id", "name"}` for an administrator, or `null`. A key
+absent from a group simply has no fleet value; keep the local one.
+
+### `tacktab/voice/voice_profile_update` ("push my settings to the fleet")
+
+```json
+{
+  "id": 7, "type": "tacktab/voice/voice_profile_update", "epoch": "…",
+  "request_id": "<uuid, new per user action, reused on retry>",
+  "base_revision": 12,
+  "groups": {"voice": {"wake_sensitivity": 0.4, "wake_fine_tune": 2}}
+}
+```
+
+* `groups` is a **partial merge**: the keys sent replace those keys; every other
+  key in the stored group, including keys this Home Assistant release or an
+  older app does not know, is kept. Send the whole group to push everything.
+* `base_revision` must equal the current revision, else the write is refused
+  with error code `profile_conflict` (message says the current revision). Run
+  `voice_profile_get`, show or reconcile, and retry with the new revision.
+* A tablet may push only when it opted in and only groups it follows; otherwise
+  `profile_not_following`. Opting in is a Home Assistant setting (below).
+* A retry with the same `request_id` returns the original result and does not
+  write twice, so a lost response is safe to retry.
+* An update that changes nothing returns `changed: false` and does not bump the
+  revision.
+
+Result:
+
+```json
+{"revision": 13, "changed": true, "updated_at": "…", "group_revisions": {"voice": 13, "…": 0}, "dropped": ["voice.arbitration_offset_db"]}
+```
+
+Error codes: `invalid_profile` (bad group, key name or value; nothing is
+stored), `profile_conflict`, `profile_not_following`, `unsupported_capability`,
+`profile_read_only` (storage is from a newer release), `profile_unavailable`
+(save failed), plus the standard `invalid_format`, `stale_epoch`,
+`disconnected`.
+
+### `voice_profile_changed` event
+
+Sent on the tablet's subscription to followers (never to the writer, never to a
+session that did not negotiate the capability):
+
+```json
+{
+  "event": "voice_profile_changed", "epoch": "…", "seq": 41,
+  "reason": "update",
+  "schema_version": 1, "revision": 13, "updated_at": "…",
+  "updated_by": {"type": "tablet", "install_id": "…", "name": "Kitchen"},
+  "group_revisions": {"voice": 13, "appearance": 3, "conversation": 0, "timers": 9, "chimes": 0},
+  "groups": {"voice": {"wake_sensitivity": 0.4, "wake_fine_tune": 2}},
+  "following": {"enabled": true, "groups": ["voice", "timers"]}
+}
+```
+
+`groups` carries the **full current content** of each changed group that the
+tablet follows, so apply a group atomically. `reason` is `update` or
+`follow_changed`. `follow_changed` is sent when a user changes the tablet's
+opt-in in Home Assistant; it carries all followed groups (empty `groups` when
+the tablet opted out) so the tablet catches up immediately.
+
+### Following (Home Assistant side)
+
+Each paired tablet has, under its device: **Follow fleet voice profile**
+(switch, opt in, default off), **Follow fleet voice / appearance /
+conversation / timers / chimes** (switches, default on) and a diagnostic
+**Fleet voice profile revision** sensor (state is the revision; attributes
+`updated_at`, `updated_by`, `following`, `followed_groups`, `app_supported`).
+The same choices are in the tablet's config entry options (**Configure**), stored
+as `fleet_profile_follow` and `fleet_profile_groups`.
+
+### Administrator websocket API
+
+Administrators only (a non-admin gets `unauthorized`):
+
+* `tacktab/voice_profile/get` returns the `voice_profile_get` result plus
+  `devices`: `[{"install_id", "name", "connected", "negotiated", "following"}]`.
+* `tacktab/voice_profile/update` with `base_revision`, `groups`, optional
+  `remove` (`{"voice": ["wake_future_knob"]}`, the only way to delete a key) and
+  optional `request_id`. Same conflict rules; followers are notified.
+
+### Forward compatibility
+
+* Unknown **keys** inside a known group are stored and returned unchanged, as
+  plain bounded JSON (null, boolean, number, string up to 512 characters, lists
+  and objects up to 32 items and three levels deep, at most 1024 values in
+  all; deeper or larger values are rejected `invalid_profile`, and a stored
+  value that exceeds the limits is dropped on load while the rest is kept). A
+  group holds up to 128 keys and 8 KiB.
+* **Every key at every depth must already be `[a-z][a-z0-9_]{0,63}`.** Keys are
+  never rewritten: a nested key with a hyphen, capital letter, space, fullwidth
+  or look-alike (for example Cyrillic) letter is dropped and reported in
+  `dropped` by path, such as `voice.future.api-key`. A top-level key that is
+  malformed rejects the update, unless it is a recognised excluded name in
+  another spelling (`deviceId`, `home-assistant-url`), which is dropped and
+  reported. Excluded and credential-like names (see above) are removed at any
+  depth, including inside lists; the generic names `name`, `enabled` and
+  `muted` are excluded only at the top of a group.
+* Unknown **groups** are rejected (`invalid_profile`); a new group needs an
+  integration release so its follow switch exists.
+* Because a push merges key by key, an older app cannot erase a newer app's
+  keys. Known keys with out-of-range values reject the whole update.
+* Storage is `.storage/tacktab.voice_profile`, version 1.1. A document written
+  by an older layout is repaired on load; one from a newer major or minor version
+  makes the profile read-only (writes answer `profile_read_only`) instead of being
+  overwritten, so unknown groups and metadata survive a downgrade.
+* A file that is not valid JSON is handled by Home Assistant's own storage
+  layer: it renames the file to `tacktab.voice_profile.corrupt.<timestamp>`,
+  raises a repair issue and starts with an empty, writable profile. The
+  original bytes stay in the renamed file for manual recovery.

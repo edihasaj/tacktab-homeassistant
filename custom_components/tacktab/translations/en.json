@@ -48,6 +48,14 @@
         "data": {
           "realtime_trusted_local_http": "Allow local HTTP provider-key updates"
         }
+      },
+      "tablet": {
+        "title": "Fleet voice profile",
+        "description": "Follow the voice settings shared across your Tacktab tablets. Per-tablet settings such as the arbitration offset and microphone gain are never shared.",
+        "data": {
+          "fleet_profile_follow": "Follow the fleet voice profile",
+          "fleet_profile_groups": "Groups to follow"
+        }
       }
     },
     "abort": {
