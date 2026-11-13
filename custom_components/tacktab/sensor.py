@@ -12,6 +12,14 @@ from .entity import TacktabEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: TacktabConfigEntry, add: AddConfigEntryEntitiesCallback) -> None:
+    from .voice_setup import is_voice_entry
+
+    if is_voice_entry(entry):
+        # Voice entries own a separate tablet device with its own turn sensor.
+        from .voice_sensor import async_setup_entry as async_setup_voice_sensors
+
+        await async_setup_voice_sensors(hass, entry, add)
+        return
     add([TacktabBattery(entry.runtime_data), TacktabVersion(entry.runtime_data)])
 
 

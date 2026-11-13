@@ -76,7 +76,10 @@ class RealtimeController:
                     candidate = parse_slot_config(msg["config"])
                     if candidate.mode == "realtime":
                         if not bridge_session.device.device_id: raise RealtimeConfigError("Device is not ready")
-                        await async_bind_tools(self.hass, connection, bridge_session.device.device_id, candidate.llm_api_ids, candidate.language)
+                        await async_bind_tools(
+                            self.hass, connection, bridge_session.device.device_id, candidate.llm_api_ids,
+                            candidate.language, getattr(bridge_session.device, "name", ""),
+                        )
                 except Exception as exc:
                     raise RealtimeProtocolError("invalid_format", "Realtime slot configuration is unavailable") from exc
                 result = update_slot(self.hass, entry, msg["slot_id"], msg["config"])
@@ -187,9 +190,13 @@ class RealtimeController:
         try:
             self._purge_memory(bridge_session.device)
             async with asyncio.timeout(15):
-                runtime.tools = await async_bind_tools(self.hass, connection, bridge_session.device.device_id, setting.llm_api_ids, setting.language)
+                runtime.tools = await async_bind_tools(
+                    self.hass, connection, bridge_session.device.device_id, setting.llm_api_ids, setting.language, getattr(bridge_session.device, "name", "")
+                )
                 if runtime.closed: raise asyncio.CancelledError
-                instructions = "\n\n".join(value for value in (runtime.tools.prompt, setting.instructions) if value)
+                instructions = "\n\n".join(
+                    value for value in (runtime.tools.room_prompt, runtime.tools.prompt, setting.instructions) if value
+                )
                 resume = {**(runtime.resume or {}), "history": runtime.history} if (runtime.resume or runtime.history) else None
                 await provider.connect(provider_config(entry, setting, self.hass), runtime.tools.specs, instructions, resume)
                 if runtime.closed: raise asyncio.CancelledError
@@ -215,6 +222,8 @@ class RealtimeController:
             self.pending.pop(runtime.session_id, None)
             runtime.setup_task = None
         self.sessions[runtime.session_id] = runtime; bridge_session.device.realtime_active = True
+        if set_activity := getattr(bridge_session.device, "async_set_activity", None):
+            set_activity(f"realtime:{runtime.session_id}", "realtime", runtime.slot_id)
         runtime.max_task = self.hass.async_create_task(self._close_after(runtime, MAX_SESSION_SECONDS, "session_limit"), f"tacktab_realtime_limit_{runtime.session_id}")
         connection.send_result(msg["id"], {"session_id": runtime.session_id, "input_format": {"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1}, "output_format": {"codec": "pcm_s16le", "sample_rate": 24000, "channels": 1}})
         self._emit(bridge_session, "ready", session_id=runtime.session_id, slot_id=runtime.slot_id, provider=runtime.setting.provider, model=runtime.setting.model, voice=runtime.setting.voice, input_format={"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1}, output_format={"codec": "pcm_s16le", "sample_rate": 24000, "channels": 1})
@@ -473,6 +482,8 @@ class RealtimeController:
         finally:
             await self._release(run)
             run.bridge_session.device.realtime_active = False
+            if clear_activity := getattr(run.bridge_session.device, "async_clear_activity", None):
+                clear_activity(f"realtime:{run.session_id}")
             self.closed_sessions[run.session_id] = (run.bridge_session, run.memory_key)
             while len(self.closed_sessions) > 64:
                 self.closed_sessions.pop(next(iter(self.closed_sessions)))
