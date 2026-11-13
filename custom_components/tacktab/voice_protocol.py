@@ -75,7 +75,10 @@ def parse_status(value: Any) -> VoiceStatus:
 
 
 def parse_capabilities(value: Any) -> VoiceCapabilities:
-    obj = _strict_object(value, {"announcements", "start_conversation", "timers", "local_wake_word", "pcm16_16khz_mono"})
+    # `voice_profile` is optional so apps that predate fleet profile sync connect unchanged.
+    obj = _strict_object(
+        value, {"announcements", "start_conversation", "timers", "local_wake_word", "pcm16_16khz_mono"}, {"voice_profile"}
+    )
     if any(type(obj[name]) is not bool for name in obj) or obj["pcm16_16khz_mono"] is not True:
         _fail()
     return VoiceCapabilities(**obj)  # type: ignore[arg-type]
@@ -145,6 +148,8 @@ def validate_message(msg: Any) -> dict[str, Any]:
         "cancel_output": (common | {"epoch", "action_id"}, set()),
         "ack": (common | {"epoch", "action_id", "status"}, {"error"}),
         "timer_action": (common | {"epoch", "request_id", "timer_id", "action"}, {"seconds"}),
+        "voice_profile_get": (common | {"epoch"}, set()),
+        "voice_profile_update": (common | {"epoch", "request_id", "base_revision", "groups"}, set()),
     }
     if command not in specs:
         _fail()
@@ -157,7 +162,9 @@ def validate_message(msg: Any) -> dict[str, Any]:
         _string(obj["app_version"])
         if obj["platform"] not in ("android", "ios"):
             _fail()
-        parse_capabilities(obj["capabilities"])
+        capabilities = parse_capabilities(obj["capabilities"])
+        if capabilities.voice_profile and obj["protocol"] < 2:
+            _fail("Voice profile sync requires voice protocol 2", "unsupported_protocol")
         parse_status(obj["status"])
         parse_slots(obj["slots"], allow_remote_output=obj["protocol"] >= 2)
         return obj
@@ -197,6 +204,13 @@ def validate_message(msg: Any) -> dict[str, Any]:
         if obj["status"] not in ("finished", "failed", "cancelled") or failed != ("error" in obj):
             _fail()
         if failed and obj["error"] not in {"playback_failed", "unsupported_media", "local_disabled", "mic_permission", "timeout"}:
+            _fail()
+    elif command == "voice_profile_get":
+        pass
+    elif command == "voice_profile_update":
+        _uuid(obj["request_id"])
+        _int(obj["base_revision"])
+        if type(obj["groups"]) is not dict:
             _fail()
     elif command == "timer_action":
         _uuid(obj["request_id"])
