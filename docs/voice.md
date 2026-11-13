@@ -65,10 +65,11 @@ produces no duplicate event.
 
 An integration reload adopts the timers that already exist, so a pause made
 outside the tablet is still labelled `paused` and the duration the timer
-started with is preserved. Core tracks only the current duration, so a reload
-that happens after time was added cannot recover the pre-add value; the current
-duration becomes the baseline. An unnamed timer publishes `name: ""`, never
-`null`.
+started with is preserved. Core keeps the original `start_hours`,
+`start_minutes` and `start_seconds` after time is added (only `created_seconds`
+grows), so a reload after an add still reports the original duration — for
+example, a 120-second timer extended by 30 seconds reloads and still reports
+`total_seconds: 120`. An unnamed timer publishes `name: ""`, never `null`.
 
 ```yaml
 automation:

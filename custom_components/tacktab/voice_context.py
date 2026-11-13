@@ -9,6 +9,7 @@ area text for the provider instructions.
 from __future__ import annotations
 
 import json
+import unicodedata
 
 from homeassistant.core import HomeAssistant, callback
 
@@ -68,9 +69,23 @@ def async_label(value: str) -> str:
     control characters, collapse whitespace, cap the length and JSON-quote the
     result so a name can never become a separate instruction line.
     """
-    printable = "".join(" " if ord(char) < 32 or ord(char) == 127 else char for char in value)
+    # Category Cc covers C0/C1 controls (including U+009B); Cf covers invisible
+    # format characters such as bidi overrides and isolates; Zl/Zp cover the
+    # Unicode line and paragraph separators that would otherwise look like a
+    # new prompt line. Normal letters, including accented ones, are untouched.
+    printable = "".join(_clean_char(char) for char in value)
     cleaned = " ".join(printable.split())[:MAX_LABEL_LENGTH]
     # Neutralise angle brackets too, so a label can never open or close the
     # context block it is embedded in.
     escaped = json.dumps(cleaned, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
     return escaped
+
+
+def _clean_char(char: str) -> str:
+    """Replace separators with a space and drop invisible format characters."""
+    category = unicodedata.category(char)
+    if category in ("Cc", "Zl", "Zp"):
+        return " "
+    if category == "Cf":
+        return ""
+    return char

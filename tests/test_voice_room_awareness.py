@@ -177,6 +177,19 @@ def test_label_escapes_and_caps_registry_text() -> None:
     assert async_label("x" * 500) == f'"{ "x" * MAX_LABEL_LENGTH}"'
 
 
+def test_label_strips_all_unicode_control_and_format_characters() -> None:
+    """C1 controls, bidi overrides and isolates must not reach the provider."""
+    from custom_components.tacktab.voice_context import async_label
+
+    assert async_label("Kitchen\x9bSYSTEM") == '"Kitchen SYSTEM"'
+    assert async_label("Kitchen \u202eUser\u202c panel") == '"Kitchen User panel"'
+    assert async_label("A\u2066B\u2069C") == '"ABC"'
+    # U+2028 (line separator) becomes a space; U+200F and U+00AD vanish.
+    assert async_label("A\u200fB\u2028C\u00adD") == '"AB CD"'
+    # Normal letters survive, including accented and non-Latin ones.
+    assert async_label("Küche Ñandú 厨房") == '"Küche Ñandú 厨房"'
+
+
 async def test_bound_tools_carry_room_context_and_tablet_identity(hass: HomeAssistant) -> None:
     """Tool binding exposes the room prompt plus the registry name and ID."""
     from homeassistant.helpers import llm

@@ -49,7 +49,7 @@ class VoiceTimerAdapter:
                 continue
             timer_id = str(timer.id)
             self._active.setdefault(timer_id, bool(timer.is_active))
-            self._totals.setdefault(timer_id, int(timer.created_seconds))
+            self._totals.setdefault(timer_id, _started_seconds(timer))
 
     def close(self) -> None:
         if self._unsub is not None:
@@ -222,3 +222,17 @@ def _device_identity(hass: HomeAssistant, device_id: str, fallback: str) -> tupl
         return async_device_identity(hass, device_id, fallback)
     except Exception:
         return fallback, None
+
+
+def _started_seconds(timer: Any) -> int:
+    """Return the duration the timer was started with.
+
+    ``created_seconds`` grows when time is added, but Core keeps the original
+    ``start_hours``/``start_minutes``/``start_seconds`` unchanged. Fall back to
+    ``created_seconds`` only when no start component is present.
+    """
+    parts = (timer.start_hours, timer.start_minutes, timer.start_seconds)
+    if all(part is None for part in parts):
+        return int(timer.created_seconds)
+    hours, minutes, seconds = (part or 0 for part in parts)
+    return int(hours) * 3600 + int(minutes) * 60 + int(seconds)

@@ -255,3 +255,32 @@ async def test_replayed_updated_after_pause_is_deduplicated(hass: HomeAssistant)
     adapter._on_timer_event(TimerEventType.UPDATED, timer)
     await hass.async_block_till_done()
     assert [event["event_type"] for event in events] == ["started", "paused"]
+
+
+async def test_reload_after_add_time_recovers_original_duration(hass: HomeAssistant) -> None:
+    """Core keeps the start components, so reload must not adopt the extended total."""
+    device = await _device(hass)
+    events: list[dict] = []
+    hass.bus.async_listen(TIMER_EVENT, _recorder(events))
+    timer_id = await _start_timer(hass, device)
+    manager = hass.data["intent.timer"]
+    adapter: VoiceTimerAdapter = device.timer_adapter
+    adapter.action("add-before-reload", timer_id, "add", 30)
+    await hass.async_block_till_done()
+    assert manager.timers[timer_id].created_seconds == 150
+    assert events[-1]["total_seconds"] == 120
+
+    # Reload after the extension: the new adapter must still report 120.
+    adapter.close()
+    reloaded = VoiceTimerAdapter(hass, device, device.device_id)
+    reloaded.async_start()
+    device.timer_adapter = reloaded
+    try:
+        manager.pause_timer(timer_id)
+        await hass.async_block_till_done()
+        assert [event["event_type"] for event in events] == ["started", "updated", "paused"]
+        assert events[-1]["total_seconds"] == 120
+        assert events[-1]["is_active"] is False
+        assert events[-1]["seconds_left"] > 120
+    finally:
+        reloaded.close()
