@@ -18,6 +18,15 @@ from .entity import TacktabEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: TacktabConfigEntry, add: AddConfigEntryEntitiesCallback) -> None:
+    from .voice_setup import is_voice_entry
+
+    if is_voice_entry(entry):
+        # Voice entries expose the fleet voice profile opt-in switches.
+        from .voice_profile_entities import async_build_fleet_entities
+
+        switches, _sensors = await async_build_fleet_entities(hass, entry)
+        add(switches)
+        return
     add([TacktabScreen(entry.runtime_data)])
 
 

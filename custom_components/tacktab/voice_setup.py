@@ -104,6 +104,10 @@ async def async_setup_voice_entry(hass: HomeAssistant, entry: ConfigEntry) -> bo
         # creates one normal, per-tablet voice entry.
         entry.runtime_data = None
         return True
+    from .voice_profile_manager import async_get_profile_manager
+
+    # Load the fleet profile before any tablet connects or its entities exist.
+    await async_get_profile_manager(hass)
     bridge = async_get_bridge(hass)
     install_id = entry.data[VOICE_ENTRY_KEY]
     device = bridge.devices.get(install_id)
@@ -136,7 +140,7 @@ async def async_setup_voice_entry(hass: HomeAssistant, entry: ConfigEntry) -> bo
     entry.async_on_unload(adapter.close)
     from homeassistant.const import Platform
 
-    await hass.config_entries.async_forward_entry_setups(entry, [Platform.SELECT, Platform.SENSOR, Platform.ASSIST_SATELLITE])
+    await hass.config_entries.async_forward_entry_setups(entry, [Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.ASSIST_SATELLITE])
     return True
 
 
@@ -149,4 +153,4 @@ async def async_unload_voice_entry(hass: HomeAssistant, entry: ConfigEntry) -> b
     device: VoiceDevice = entry.runtime_data
     if device.session is not None:
         await device.session.close("unloaded")
-    return await hass.config_entries.async_unload_platforms(entry, [Platform.SELECT, Platform.SENSOR, Platform.ASSIST_SATELLITE])
+    return await hass.config_entries.async_unload_platforms(entry, [Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.ASSIST_SATELLITE])

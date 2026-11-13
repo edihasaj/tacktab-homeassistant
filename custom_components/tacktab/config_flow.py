@@ -10,12 +10,15 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .api import TacktabAuthError, TacktabClient, TacktabError, TacktabRateLimitError
 from .const import DEFAULT_PORT, DOMAIN
-from .voice_setup import VOICE_BOOTSTRAP_KEY
+from .voice_profile import GROUPS
+from .voice_profile_manager import OPTION_FOLLOW, OPTION_GROUPS, async_get_profile_manager
+from .voice_setup import VOICE_BOOTSTRAP_KEY, VOICE_ENTRY_KEY
 
 
 class TacktabConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -131,6 +134,8 @@ class TacktabVoiceOptionsFlow(OptionsFlow):
     """Configure the bootstrap-only local HTTP key disclosure boundary."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if VOICE_ENTRY_KEY in self.config_entry.data:
+            return await self.async_step_tablet()
         if self.config_entry.data.get(VOICE_BOOTSTRAP_KEY) is not True:
             return self.async_abort(reason="not_supported")
         if user_input is not None:
@@ -141,4 +146,21 @@ class TacktabVoiceOptionsFlow(OptionsFlow):
             step_id="init",
             data_schema=vol.Schema({vol.Required("realtime_trusted_local_http", default=self.config_entry.options.get("realtime_trusted_local_http", False)): bool}),
             description_placeholders={"disclosure": "Only allow provider-key updates over plain HTTP from private or loopback addresses."},
+        )
+
+    async def async_step_tablet(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Choose whether this tablet follows the fleet voice profile, and which groups."""
+        entry = self.config_entry
+        if user_input is not None:
+            manager = await async_get_profile_manager(self.hass)
+            await manager.async_set_follow(entry, user_input[OPTION_FOLLOW], user_input[OPTION_GROUPS])
+            return self.async_create_entry(title="", data=dict(entry.options))
+        groups = entry.options.get(OPTION_GROUPS)
+        selected = [group for group in GROUPS if group in groups] if isinstance(groups, list) else list(GROUPS)
+        return self.async_show_form(
+            step_id="tablet",
+            data_schema=vol.Schema({
+                vol.Required(OPTION_FOLLOW, default=entry.options.get(OPTION_FOLLOW) is True): bool,
+                vol.Required(OPTION_GROUPS, default=selected): cv.multi_select({group: group.title() for group in GROUPS}),
+            }),
         )
