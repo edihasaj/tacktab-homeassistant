@@ -82,7 +82,11 @@ async def handle_migration_apply(hass: HomeAssistant, connection: websocket_api.
 
 async def _apply_home_assistant_side(hass: HomeAssistant, device: VoiceDevice, settings: dict[str, Any], carry: set[str]) -> list[str]:
     """Validate everything first, then write; raises before any change on a bad input."""
-    from .select import resolve_pipeline_option  # imports Assist; keep the voice bridge gate lazy
+    from .select import ensure_device_idle, resolve_pipeline_option  # imports Assist; keep the voice bridge gate lazy
+
+    # One unconditional check before anything is validated or written: a busy tablet changes nothing, whichever items
+    # are carried (even a conversation setting would clear the active conversation id).
+    ensure_device_idle(device)
 
     pipeline_select = getattr(device, "select_entities", {}).get("primary")
     vad_select = getattr(device, "vad_select", None)
@@ -91,7 +95,6 @@ async def _apply_home_assistant_side(hass: HomeAssistant, device: VoiceDevice, s
         if pipeline_select is None:
             raise VoiceBridgeError("disconnected", "Tacktab pipeline select is unavailable")
         pipeline = resolve_pipeline_option(hass, settings["assistant"])
-        pipeline_select.ensure_idle()
     vad = settings.get("finished_speaking") if "conversation" in carry else None
     if vad and vad_select is None:
         raise VoiceBridgeError("disconnected", "Tacktab finished-speaking select is unavailable")

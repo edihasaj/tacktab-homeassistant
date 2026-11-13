@@ -75,8 +75,10 @@ changed.
 `assistant` sets the primary pipeline to the resolved stable id (`Preferred`
 and `preferred` both mean HA's preferred pipeline), and `conversation` sets the
 new **Finished speaking** select (how much silence ends a command) and the new
-**Conversation memory** select. Inputs are validated first, so a busy tablet or an
-unknown pipeline changes nothing and returns an error. The result echoes
+**Conversation memory** select. An idle check runs before anything else, whichever items are carried, and
+inputs are validated before any write, so a busy tablet (a run, media lease,
+realtime session or configuration change) or an unknown pipeline changes
+nothing and returns an error. The result echoes
 `candidate_entity_id` and what was `applied`; the native client stores its own
 choices only after this success. Review every reported reference yourself: the
 replacement timer event is `tacktab_voice_timer`, but the bridge intentionally

@@ -29,13 +29,8 @@ class _Connection:
 
 
 class _Pipeline:
-    def __init__(self, busy: bool = False) -> None:
+    def __init__(self) -> None:
         self.selected: list = []
-        self.busy = busy
-
-    def ensure_idle(self) -> None:
-        if self.busy:
-            raise VoiceBridgeError("busy", "Voice device is busy")
 
     def async_select_pipeline_id(self, pipeline_id) -> None:
         self.selected.append(pipeline_id)
@@ -49,8 +44,13 @@ class _Vad:
         self.selected.append(option)
 
 
-def _device(connection, *, busy: bool = False):
-    return SimpleNamespace(session=SimpleNamespace(connection=connection, epoch=7), select_entities={"primary": _Pipeline(busy)}, vad_select=_Vad())
+def _device(connection, *, busy: str | None = None):
+    """`busy` names what keeps the tablet busy: run, lease, realtime or config."""
+    return SimpleNamespace(
+        session=SimpleNamespace(connection=connection, epoch=7, runs={"r": object()} if busy == "run" else {}, actions={}),
+        config_lock=SimpleNamespace(locked=lambda: busy == "config"), media_lease=object() if busy == "lease" else None,
+        realtime_active=busy == "realtime", select_entities={"primary": _Pipeline()}, vad_select=_Vad(), memory_select=_Vad(),
+    )
 
 
 def _plan(settings=SETTINGS):
@@ -121,11 +121,11 @@ async def test_apply_a_named_assistant_stores_its_stable_id(hass: HomeAssistant)
 
 async def test_busy_tablet_changes_nothing_and_says_why(hass: HomeAssistant) -> None:
     connection = _Connection()
-    device = _device(connection, busy=True)
+    device = _device(connection, busy="run")
     with patch("custom_components.tacktab.select.async_get_pipelines", return_value=PIPELINES):
         await _run(ws.handle_migration_apply, hass, connection, device, APPLY)
     assert connection.results == [] and connection.errors == [("busy", "Voice device is busy")]
-    assert device.vad_select.selected == [] and device.select_entities["primary"].selected == []
+    assert device.vad_select.selected == [] and device.memory_select.selected == [] and device.select_entities["primary"].selected == []
 
 
 async def test_unknown_assistant_changes_nothing(hass: HomeAssistant) -> None:
@@ -173,3 +173,16 @@ async def test_finished_speaking_select_drives_the_silence_ha_waits_for(hass: Ho
     assert satellite._resolve_vad_sensitivity() == 1.25
     hass.states.async_set("select.kitchen_finished_speaking", "aggressive")
     assert satellite._resolve_vad_sensitivity() == 0.25
+
+
+@pytest.mark.parametrize("busy", ["run", "lease", "realtime", "config"])
+@pytest.mark.parametrize("carry", [["conversation"], ["timers"], ["assistant", "conversation"]])
+async def test_a_busy_tablet_changes_nothing_whatever_is_carried(hass: HomeAssistant, busy: str, carry: list[str]) -> None:
+    """A conversation-only migration (or one with no resolvable assistant) must not clear an active conversation."""
+    connection = _Connection()
+    device = _device(connection, busy=busy)
+    plan = _plan({"assistant": None, "assistant_preferred": None, "finished_speaking": "relaxed", "conversation_memory": "isolated"})
+    with patch("custom_components.tacktab.select.async_get_pipelines", return_value=PIPELINES):
+        await _run(ws.handle_migration_apply, hass, connection, device, {**APPLY, "carry_over": carry}, plan)
+    assert connection.results == [] and connection.errors == [("busy", "Voice device is busy")]
+    assert device.vad_select.selected == [] and device.memory_select.selected == [] and device.select_entities["primary"].selected == []

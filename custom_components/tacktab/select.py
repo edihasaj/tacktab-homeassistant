@@ -65,6 +65,17 @@ class TacktabFinishedSpeakingSelect(VadSensitivitySelect):
         self.device.vad_entity_id = self.entity_id  # type: ignore[attr-defined]
 
 
+def ensure_device_idle(device: VoiceDevice) -> None:
+    """Raise `busy` while a run, media lease, realtime session or configuration change is active."""
+    if (
+        device.config_lock.locked()
+        or device.media_lease is not None
+        or getattr(device, "realtime_active", False)
+        or (device.session is not None and (device.session.runs or device.session.actions))
+    ):
+        raise VoiceBridgeError("busy", "Voice device is busy")
+
+
 def resolve_pipeline_option(hass: HomeAssistant, option: str) -> tuple[str | None, str]:
     """Return (stable pipeline id or None for preferred, normalized option name).
 
@@ -124,13 +135,7 @@ class TacktabPipelineSelect(SelectEntity):
         self.device.pipeline_entities[self.slot_id] = self.entity_id  # type: ignore[attr-defined]
 
     def ensure_idle(self) -> None:
-        if (
-            self.device.config_lock.locked()
-            or self.device.media_lease is not None
-            or getattr(self.device, "realtime_active", False)
-            or (self.device.session is not None and (self.device.session.runs or self.device.session.actions))
-        ):
-            raise VoiceBridgeError("busy", "Voice device is busy")
+        ensure_device_idle(self.device)
 
     async def async_select_option(self, option: str) -> None:
         self.ensure_idle()

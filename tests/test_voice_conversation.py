@@ -179,7 +179,10 @@ async def test_migration_apply_writes_conversation_memory_with_finished_speaking
         async def async_select_option(self, option: str) -> None:
             written.append(option)
 
-    device = SimpleNamespace(select_entities={}, vad_select=_Select(), memory_select=_Select())
+    device = SimpleNamespace(
+        select_entities={}, vad_select=_Select(), memory_select=_Select(), session=None, media_lease=None,
+        config_lock=SimpleNamespace(locked=lambda: False),
+    )
     settings = {"finished_speaking": "relaxed", "conversation_memory": "15_minutes"}
     assert await ws._apply_home_assistant_side(hass, device, settings, {"conversation"}) == ["finished_speaking", "conversation_memory"]
     assert written == ["relaxed", "15_minutes"]
