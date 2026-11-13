@@ -1,129 +1,190 @@
-"""Read-only Voice Satellite migration discovery and guarded application.
+"""Read-only Voice Satellite migration discovery.
 
-The old integration persists most configuration in its HA entities.  This
-module deliberately reads only entity/configuration state; references are
-reported so the user can change them after Tacktab is switched.
+Upstream keeps its configuration in HA entities: the satellite itself plus
+select and switch children whose unique ids start with the config entry id.
+This module reads only that state and returns one canonical, typed `settings`
+shape; every value is `None` when the source did not say, so callers leave
+their own preference untouched instead of guessing.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from pathlib import Path
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
-
-import yaml
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
+from .voice_migration_refs import OLD_TIMER_EVENT, ReferenceDiscovery, async_discover_references, scan_references
+
+__all__ = ["OLD_DOMAIN", "OLD_TIMER_EVENT", "NEW_TIMER_EVENT", "async_build_plan", "build_plan", "scan_references"]
+
 OLD_DOMAIN = "voice_satellite"
-OLD_TIMER_EVENT = "voice_satellite_timer"
 NEW_TIMER_EVENT = "tacktab_voice_timer"
+_UNKNOWN = {"unknown", "unavailable", "none", ""}
+
+# (canonical source key, platform, unique id suffix). The pipeline and VAD
+# selects come from HA core's assist_pipeline and use "-" instead of "_".
+_CHILDREN = (
+    ("assistant", "select", "-pipeline"), ("assistant_2", "select", "_pipeline_2"),
+    ("wake_word", "select", "_wake_word_model"), ("wake_word_2", "select", "_wake_word_model_2"),
+    ("wake_detection", "select", "_wake_word_detection"), ("wake_sensitivity", "select", "_wake_word_sensitivity"),
+    ("finished_speaking", "select", "-vad_sensitivity"), ("conversation", "select", "_session_duration"),
+    ("timer_muted", "switch", "_mute_timers"),
+)
+# The satellite entity mirrors most of those as attributes; used as a fallback.
+_ATTRIBUTES = {
+    "assistant": "pipeline", "assistant_2": "pipeline_2", "wake_word": "wake_word_model", "wake_word_2": "wake_word_model_2",
+    "wake_detection": "wake_word_detection", "wake_sensitivity": "wake_word_sensitivity",
+    "conversation": "session_duration", "timer_muted": "mute_timers", "finished_speaking": "vad_sensitivity",
+}
+_ENGINES = {"microwakeword": "microwakeword", "openwakeword": "openwakeword", "vswakeword": "vswakeword"}
+_VAD = {"default", "relaxed", "aggressive"}
 
 
-def _value(value: Any) -> Any:
-    """Make state/config values safe to return through websocket JSON."""
-    return value if isinstance(value, (str, int, float, bool)) or value is None else None
+@dataclass(slots=True)
+class OldSatellite:
+    """Raw upstream values for one satellite, keyed by the canonical names."""
+
+    entity_id: str
+    name: str
+    state: str
+    raw: dict[str, Any] = field(default_factory=dict)
 
 
-def _contains_reference(value: Any, satellite_id: str) -> bool:
-    """Find literal old entity/event references in a parsed YAML value."""
-    if isinstance(value, str):
-        return satellite_id in value or OLD_TIMER_EVENT in value
-    if isinstance(value, Mapping):
-        return any(_contains_reference(key, satellite_id) or _contains_reference(item, satellite_id) for key, item in value.items())
-    if isinstance(value, Iterable):
-        return any(_contains_reference(item, satellite_id) for item in value)
-    return False
+def _text(value: Any) -> str | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    text = str(value).strip()
+    return None if text.casefold() in _UNKNOWN else text
 
 
-def scan_references(documents: Mapping[str, Any], satellite_id: str) -> list[dict[str, str]]:
-    """Return, never mutate, configured automations and scripts using old APIs."""
-    matches: list[dict[str, str]] = []
-    for kind in ("automation", "script"):
-        source = documents.get(kind, {})
-        items = source if isinstance(source, list) else source.values() if isinstance(source, Mapping) else ()
-        for index, item in enumerate(items):
-            if not isinstance(item, Mapping) or not _contains_reference(item, satellite_id):
-                continue
-            identifier = str(item.get("id") or item.get("alias") or item.get("name") or index)
-            matches.append({"kind": kind, "id": identifier, "name": str(item.get("alias") or item.get("name") or identifier)})
-    return matches
+def _flag(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    text = _text(value)
+    return None if text is None else True if text.casefold() in {"on", "true"} else False if text.casefold() in {"off", "false"} else None
 
 
-def _yaml_documents(config_dir: str) -> dict[str, Any]:
-    """Best-effort YAML reads; malformed user YAML must not break voice setup."""
-    result: dict[str, Any] = {}
-    for kind, filename in (("automation", "automations.yaml"), ("script", "scripts.yaml")):
-        try:
-            with Path(config_dir, filename).open(encoding="utf-8") as handle:
-                result[kind] = yaml.safe_load(handle) or {}
-        except (OSError, yaml.YAMLError):
-            result[kind] = {}
-    return result
+def _is_preferred(value: str | None) -> bool | None:
+    return None if value is None else value.casefold() == "preferred"
 
 
-def build_plan(states: Mapping[str, Any], entries: Iterable[Any], documents: Mapping[str, Any]) -> dict[str, Any]:
-    """Build JSON-ready candidates from supplied HA state and registry entries."""
-    old_entries = {entry.entry_id for entry in entries if getattr(entry, "domain", None) == OLD_DOMAIN}
-    candidates: list[dict[str, Any]] = []
-    for entity_id, state in states.items():
-        if not entity_id.startswith("assist_satellite."):
-            continue
-        entry_id = getattr(state, "config_entry_id", None)
-        attrs = getattr(state, "attributes", {})
-        if entry_id not in old_entries and attrs.get("integration") != OLD_DOMAIN:
-            continue
-        settings = {
-            "assistant": _value(attrs.get("pipeline")),
-            "pipeline_2": _value(attrs.get("pipeline_2")),
-            "wake_word": _value(attrs.get("wake_word_model")),
-            "wake_word_2": _value(attrs.get("wake_word_model_2")),
-            "wake_detection": _value(attrs.get("wake_word_detection")),
-            "finished_speaking": _value(attrs.get("vad_sensitivity")),
-            "conversation": _value(attrs.get("session_duration")),
-            "timer_muted": _value(attrs.get("mute_timers")),
-            "timer_visible": _value(attrs.get("hide_on_screen_countdown")),
-            "timer_name_visible": _value(attrs.get("hide_timer_name_on_alert")),
-        }
+def normalize_wake_detection(value: Any) -> dict[str, Any]:
+    """Map upstream's detection labels to mode (local/server/disabled) and engine."""
+    label = _text(value)
+    if label is None:
+        return {"wake_detection": None, "wake_engine": None, "wake_engine_supported": None, "wake_detection_label": None}
+    key = re.sub(r"[^a-z]", "", label.casefold())
+    if key == "disabled":
+        mode, engine = "disabled", None
+    elif key == "homeassistant":
+        mode, engine = "server", None
+    elif key.startswith("ondevice"):
+        engine = next((name for token, name in _ENGINES.items() if token in key), "microwakeword" if key == "ondevice" else None)
+        mode = "local"
+    else:
+        mode, engine = None, None
+    supported = None if mode is None else engine in (None, "microwakeword")
+    return {"wake_detection": mode, "wake_engine": engine, "wake_engine_supported": supported, "wake_detection_label": label}
+
+
+def normalize_conversation(value: Any) -> dict[str, Any]:
+    """`persistent`, `isolated` or `<n>_minutes|hour(s)`, in any case/spacing."""
+    text = _text(value)
+    if text is None:
+        return {"conversation": None, "conversation_seconds": None}
+    key = re.sub(r"[\s-]+", "_", text.casefold())
+    if key in {"persistent", "isolated"}:
+        return {"conversation": key, "conversation_seconds": None}
+    match = re.fullmatch(r"(\d+)_(minute|hour)s?", key)
+    if match:
+        return {"conversation": "timed", "conversation_seconds": int(match[1]) * (60 if match[2] == "minute" else 3600)}
+    return {"conversation": None, "conversation_seconds": None}
+
+
+def normalize_settings(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """The one typed shape shared by `build_plan`, the apply command and both apps."""
+    assistant = _text(raw.get("assistant"))
+    vad = _text(raw.get("finished_speaking"))
+    vad = vad.casefold() if vad else None
+    settings: dict[str, Any] = {
+        "assistant": assistant, "assistant_preferred": _is_preferred(assistant), "assistant_pipeline_id": None,
+        "assistant_2": _text(raw.get("assistant_2")),
+        "wake_word": _text(raw.get("wake_word")), "wake_word_2": _text(raw.get("wake_word_2")),
+        "wake_sensitivity": _text(raw.get("wake_sensitivity")),
+        "finished_speaking": vad if vad in _VAD else None,
+        "timer_muted": _flag(raw.get("timer_muted")),
+    }
+    return settings | normalize_wake_detection(raw.get("wake_detection")) | normalize_conversation(raw.get("conversation"))
+
+
+def plan_warnings(settings: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Things Tacktab cannot carry; shown in review instead of silently dropped."""
+    warnings: list[dict[str, str]] = []
+    if settings.get("wake_engine_supported") is False:
+        warnings.append({"code": "unsupported_wake_engine", "detail": str(settings.get("wake_detection_label"))})
+    if settings.get("wake_word_2") or settings.get("assistant_2"):
+        warnings.append({"code": "second_assistant_not_carried", "detail": "Second wake word and assistant are not migrated"})
+    warnings.append({"code": "appearance_not_mapped", "detail": "Voice Satellite skins have no native mapping"})
+    return warnings
+
+
+def build_plan(satellites: list[OldSatellite], discovery: ReferenceDiscovery) -> dict[str, Any]:
+    """Build JSON-ready candidates from already-read upstream values."""
+    candidates = []
+    for satellite in satellites:
+        settings = normalize_settings(satellite.raw)
         candidates.append({
-            "entity_id": entity_id,
-            "name": str(attrs.get("friendly_name") or entity_id.removeprefix("assist_satellite.").replace("_", " ").title()),
-            "state": str(getattr(state, "state", "unknown")),
-            "settings": settings,
-            "references": scan_references(documents, entity_id),
+            "entity_id": satellite.entity_id, "name": satellite.name, "state": satellite.state, "settings": settings,
+            "references": discovery.for_satellite(satellite.entity_id), "warnings": plan_warnings(settings),
             # No skin is portable until an explicit native mapping exists.
             "appearance_mapping": None,
         })
-    return {"candidates": candidates, "timer_event_mapping": {"from": OLD_TIMER_EVENT, "to": NEW_TIMER_EVENT}}
+    return {
+        "candidates": candidates,
+        "references_complete": discovery.complete, "reference_warnings": list(discovery.warnings),
+        "timer_event_mapping": {"from": OLD_TIMER_EVENT, "to": NEW_TIMER_EVENT},
+    }
+
+
+def read_satellites(hass: HomeAssistant) -> list[OldSatellite]:
+    """Read upstream entities by their documented unique ids; writes nothing."""
+    registry = er.async_get(hass)
+    result: list[OldSatellite] = []
+    for entry in registry.entities.values():
+        if entry.platform != OLD_DOMAIN or entry.domain != "assist_satellite":
+            continue
+        state = hass.states.get(entry.entity_id)
+        if state is None:
+            continue
+        attrs = state.attributes
+        raw: dict[str, Any] = {key: attrs.get(name) for key, name in _ATTRIBUTES.items()}
+        prefix = entry.unique_id
+        for key, platform, suffix in _CHILDREN:
+            child_id = registry.async_get_entity_id(platform, OLD_DOMAIN, f"{prefix}{suffix}")
+            child = hass.states.get(child_id) if child_id else None
+            if child is not None and _text(child.state) is not None:
+                raw[key] = child.state
+        name = attrs.get("friendly_name") or entry.entity_id.removeprefix("assist_satellite.").replace("_", " ").title()
+        result.append(OldSatellite(entry.entity_id, str(name), str(state.state), raw))
+    return result
 
 
 async def async_build_plan(hass: HomeAssistant) -> dict[str, Any]:
-    """Read old integration state and YAML without reloading or writing either."""
-    registry = er.async_get(hass)
-    states: dict[str, Any] = {}
-    children: dict[str, dict[str, Any]] = {}
-    registry_states: list[tuple[Any, Any]] = []
-    for entry in registry.entities.values():
-        state = hass.states.get(entry.entity_id)
-        if state is not None:
-            children.setdefault(entry.config_entry_id, {})[entry.unique_id] = state
-            registry_states.append((entry, state))
-    for entry, state in registry_states:
-        if state is not None:
-            if entry.entity_id.startswith("assist_satellite."):
-                attrs = dict(state.attributes)
-                for unique_id, child in children.get(entry.config_entry_id, {}).items():
-                    suffixes = {
-                        "_wake_word_model": "wake_word", "_wake_word_model_2": "wake_word_2",
-                        "_wake_word_detection": "wake_detection", "_session_duration": "conversation",
-                        "_wake_word_sensitivity": "wake_sensitivity", "_pipeline_2": "pipeline_2",
-                        "_mute_timers": "timer_muted",
-                    }
-                    for suffix, key in suffixes.items():
-                        if unique_id.endswith(suffix):
-                            attrs[key] = child.state
-                    if "vad" in unique_id or "finished_speaking" in unique_id:
-                        attrs["vad_sensitivity"] = child.state
-                states[entry.entity_id] = type("MigrationState", (), {"state": state.state, "attributes": attrs, "config_entry_id": entry.config_entry_id})()
-    return build_plan(states, hass.config_entries.async_entries(), _yaml_documents(hass.config.config_dir))
+    """Read old integration state and automation config without writing either."""
+    from homeassistant.components.assist_pipeline import async_get_pipelines
+
+    plan = build_plan(read_satellites(hass), await async_discover_references(hass))
+    pipelines = list(async_get_pipelines(hass))
+    for candidate in plan["candidates"]:
+        settings = candidate["settings"]
+        wanted = settings["assistant"]
+        if wanted and not settings["assistant_preferred"]:
+            match = next((p for p in pipelines if p.name == wanted), None) or next((p for p in pipelines if p.name.casefold() == wanted.casefold()), None)
+            settings["assistant_pipeline_id"] = None if match is None else match.id
+            if match is None:
+                candidate["warnings"].append({"code": "assistant_not_found", "detail": wanted})
+    return plan
