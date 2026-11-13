@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+import ipaddress
 import re
 import unicodedata
 
@@ -12,7 +13,7 @@ RESULT_VERSION = 1
 MAX_TEXT = 512
 MAX_URL = 2_048
 _ABSOLUTE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*)://([^/?#]*)(.*)$", re.DOTALL)
-_AUTHORITY = re.compile(r"^(?:\[[0-9A-Fa-f:.]+\]|[^\[\]:@\s/?#\\]+)(?::([0-9]{1,5}))?$")
+_AUTHORITY = re.compile(r"^(?:\[([0-9A-Fa-f:.]+)\]|([^\[\]:@\s/?#\\]+))(?::([0-9]{1,5}))?$")
 _KINDS = frozenset(("text", "tool", "weather", "entity", "image", "video", "number"))
 
 
@@ -63,8 +64,7 @@ def sanitize_media_url(value: Any) -> str | None:
     Allowed: ``https://host/...`` (scheme matched case-insensitively and
     normalized to lowercase) or a root-relative path such as ``/api/image_proxy/x``.
     Rejected: any other scheme (http, file, data), protocol-relative ``//host``,
-    userinfo, whitespace/control characters, backslashes, malformed hosts or ports
-    (``https://[``), and values longer than ``MAX_URL`` (never truncated, because a
+    userinfo, whitespace/control characters, backslashes, malformed hosts (``https://[``, ``https://[::::]``, ``https://[.]``) or ports, and values longer than ``MAX_URL`` (never truncated, because a
     clipped URL is a different URL).  A rejected URL makes the caller fall back to
     the spoken text.
     """
@@ -80,9 +80,23 @@ def sanitize_media_url(value: Any) -> str | None:
         return None
     scheme, authority, rest = match.groups()
     host = _AUTHORITY.match(authority)
-    if scheme.lower() != "https" or host is None or (host.group(1) and int(host.group(1)) > 65535):
+    if scheme.lower() != "https" or host is None or not _valid_host(host.group(1), host.group(2)):
+        return None
+    if host.group(3) and int(host.group(3)) > 65535:
         return None
     return f"https://{authority}{rest}"
+
+
+def _valid_host(ipv6: str | None, name: str | None) -> bool:
+    """A bracketed host must be a real IPv6 literal; a name needs non-empty labels."""
+    if ipv6 is not None:
+        try:
+            ipaddress.IPv6Address(ipv6)
+        except ValueError:
+            return False
+        return True
+    labels = (name or "").removesuffix(".").split(".")
+    return all(labels) and any(char.isalnum() for char in name or "")
 
 
 def _card(kind: str, *, title: str, text: str | None = None, **extra: Any) -> dict[str, Any]:

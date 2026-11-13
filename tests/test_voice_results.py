@@ -55,3 +55,10 @@ def test_zero_degrees_is_kept() -> None:
 def test_media_card_uses_the_normalized_https_url() -> None:
     result = result_from_intent({"response": {"speech": {"plain": {"speech": "Look."}}, "data": {"result_type": "video", "url": "HTTPS://cdn.example.test/v.mp4"}}})
     assert result is not None and result["kind"] == "video" and result["url"] == "https://cdn.example.test/v.mp4"
+
+
+def test_malformed_ipv6_host_falls_back_to_the_text_card() -> None:
+    for url in ("https://[::::]/image.png", "https://[.]/x"):
+        assert sanitize_media_url(url) is None
+        result = result_from_intent({"response": {"speech": {"plain": {"speech": "Here."}}, "data": {"result_type": "image", "url": url}}})
+        assert result == {"version": 1, "kind": "text", "title": "Assistant", "text": "Here."}
