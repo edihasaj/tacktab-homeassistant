@@ -1,0 +1,194 @@
+{
+  "description": "Conversation card URL policy shared by the Android app, the iOS app and the Home Assistant companion. HTTPS or root-relative only; scheme case is normalized to lowercase; userinfo, whitespace, backslashes, other schemes and protocol-relative URLs are rejected. Values over 2048 characters are rejected, never truncated (tested in each platform). Bracketed hosts must be valid IPv6 literals; names need non-empty labels.",
+  "maxLength": 2048,
+  "vectors": [
+    {
+      "input": "https://cdn.example.test/image.jpg",
+      "expected": "https://cdn.example.test/image.jpg"
+    },
+    {
+      "input": "HTTPS://CDN.example.test/a.jpg",
+      "expected": "https://CDN.example.test/a.jpg"
+    },
+    {
+      "input": "Https://cdn.example.test:8443/a.jpg?x=1#f",
+      "expected": "https://cdn.example.test:8443/a.jpg?x=1#f"
+    },
+    {
+      "input": "  https://cdn.example.test/a.jpg  ",
+      "expected": "https://cdn.example.test/a.jpg"
+    },
+    {
+      "input": "/api/image_proxy/media",
+      "expected": "/api/image_proxy/media"
+    },
+    {
+      "input": "/api/image_proxy/media?token=abc",
+      "expected": "/api/image_proxy/media?token=abc"
+    },
+    {
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "input": "http://cdn.example.test/a.jpg",
+      "expected": null
+    },
+    {
+      "input": "http://192.168.1.4/image.jpg",
+      "expected": null
+    },
+    {
+      "input": "//attacker.test/a.jpg",
+      "expected": null
+    },
+    {
+      "input": "/\\attacker.test/a.jpg",
+      "expected": null
+    },
+    {
+      "input": "https://cdn.example.test\\@attacker.test/a.jpg",
+      "expected": null
+    },
+    {
+      "input": "https://user:pw@cdn.example.test/a.jpg",
+      "expected": null
+    },
+    {
+      "input": "https://user@cdn.example.test/a.jpg",
+      "expected": null
+    },
+    {
+      "input": "https://",
+      "expected": null
+    },
+    {
+      "input": "https:///a.jpg",
+      "expected": null
+    },
+    {
+      "input": "https://[",
+      "expected": null
+    },
+    {
+      "input": "https://cdn.example.test:99999/a.jpg",
+      "expected": null
+    },
+    {
+      "input": "file:///private/image.jpg",
+      "expected": null
+    },
+    {
+      "input": "javascript:alert(1)",
+      "expected": null
+    },
+    {
+      "input": "data:image/png;base64,AAAA",
+      "expected": null
+    },
+    {
+      "input": "relative/path.png",
+      "expected": null
+    },
+    {
+      "input": "https://cdn.example.test/a b.jpg",
+      "expected": null
+    },
+    {
+      "input": "https://cdn.example.test/a\nb.jpg",
+      "expected": null
+    },
+    {
+      "input": "",
+      "expected": null
+    },
+    {
+      "input": "   ",
+      "expected": null
+    },
+    {
+      "input": "https://[::1]/ok",
+      "expected": "https://[::1]/ok"
+    },
+    {
+      "input": "https://[2001:db8::1]:8443/a",
+      "expected": "https://[2001:db8::1]:8443/a"
+    },
+    {
+      "input": "https://[::ffff:1.2.3.4]/a",
+      "expected": "https://[::ffff:1.2.3.4]/a"
+    },
+    {
+      "input": "https://example.com./x",
+      "expected": "https://example.com./x"
+    },
+    {
+      "input": "https://[::::]/image.png",
+      "expected": null
+    },
+    {
+      "input": "https://[.]/x",
+      "expected": null
+    },
+    {
+      "input": "https://[1:2:3:4:5:6:7:8:9]/a",
+      "expected": null
+    },
+    {
+      "input": "https://[1::2::3]/a",
+      "expected": null
+    },
+    {
+      "input": "https://[12345::1]/a",
+      "expected": null
+    },
+    {
+      "input": "https://[::1",
+      "expected": null
+    },
+    {
+      "input": "https://[]/x",
+      "expected": null
+    },
+    {
+      "input": "https://./x",
+      "expected": null
+    },
+    {
+      "input": "https://example..com/x",
+      "expected": null
+    },
+    {
+      "input": "https://.example.com/x",
+      "expected": null
+    },
+    {
+      "input": "https://[:::1]/x",
+      "expected": null
+    },
+    {
+      "input": "https://[::ffff:192.0.2.01]/x",
+      "expected": null
+    },
+    {
+      "input": "https://[::ffff:001.002.003.004]/x",
+      "expected": null
+    },
+    {
+      "input": "https://[::ffff:192.000.2.128]/x",
+      "expected": null
+    },
+    {
+      "input": "https://[::ffff:256.1.1.1]/x",
+      "expected": null
+    },
+    {
+      "input": "https://[::ffff:1.2.3]/x",
+      "expected": null
+    },
+    {
+      "input": "https://[::ffff:192.0.2.128]/x",
+      "expected": "https://[::ffff:192.0.2.128]/x"
+    }
+  ]
+}

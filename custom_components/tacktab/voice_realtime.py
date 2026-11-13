@@ -405,6 +405,10 @@ class RealtimeController:
             )
             await run.provider.send_tool_result(event.call_id, event.name, result, failed)
             self._emit(run.bridge_session, "tool_state", session_id=run.session_id, slot_id=run.slot_id, call_id=event.call_id, state="failed" if failed else "completed")
+            if getattr(run.bridge_session, "protocol", 0) >= 3:
+                from .voice_results import tool_use_result
+
+                self._emit(run.bridge_session, "conversation_result", session_id=run.session_id, slot_id=run.slot_id, result=tool_use_result(event.name, result, failed))
         except asyncio.CancelledError:
             return
         except Exception:
