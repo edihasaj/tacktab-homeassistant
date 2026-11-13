@@ -276,8 +276,19 @@ Administrators only (a non-admin gets `unauthorized`):
 
 * Unknown **keys** inside a known group are stored and returned unchanged, as
   plain bounded JSON (null, boolean, number, string up to 512 characters, lists
-  and objects up to 32 items and three levels deep). Key names are lowercase
-  `[a-z][a-z0-9_]{0,63}`. A group holds up to 128 keys and 8 KiB.
+  and objects up to 32 items and three levels deep, at most 1024 values in
+  all; deeper or larger values are rejected `invalid_profile`, and a stored
+  value that exceeds the limits is dropped on load while the rest is kept). A
+  group holds up to 128 keys and 8 KiB.
+* **Every key at every depth must already be `[a-z][a-z0-9_]{0,63}`.** Keys are
+  never rewritten: a nested key with a hyphen, capital letter, space, fullwidth
+  or look-alike (for example Cyrillic) letter is dropped and reported in
+  `dropped` by path, such as `voice.future.api-key`. A top-level key that is
+  malformed rejects the update, unless it is a recognised excluded name in
+  another spelling (`deviceId`, `home-assistant-url`), which is dropped and
+  reported. Excluded and credential-like names (see above) are removed at any
+  depth, including inside lists; the generic names `name`, `enabled` and
+  `muted` are excluded only at the top of a group.
 * Unknown **groups** are rejected (`invalid_profile`); a new group needs an
   integration release so its follow switch exists.
 * Because a push merges key by key, an older app cannot erase a newer app's

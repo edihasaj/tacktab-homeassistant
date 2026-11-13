@@ -475,3 +475,18 @@ async def test_app_supported_clears_when_the_websocket_disconnects(hass, fleet) 
     await hass.async_block_till_done()
     assert entries[A].runtime_data.session is None
     assert _supported(hass, "kitchen") is False
+
+
+async def test_a_deep_value_pushed_by_a_tablet_is_a_structured_error(hass, fleet) -> None:
+    entries, tablets = fleet
+    await _follow(hass, entries[A])
+    tablet = tablets[A]
+    await tablet.connect()
+    deep: dict = {}
+    for _ in range(100):
+        deep = {"a": deep}
+    response = await tablet.push(0, {"voice": {"future": deep}})
+    assert not response["success"] and response["error"]["code"] == "invalid_profile"
+    response = await tablet.push(0, {"voice": {"future": {"api-key": "x", "deviceId": "d", "keep": 1}}})
+    assert response["result"]["dropped"] == ["voice.future.api-key", "voice.future.deviceId"]
+    assert (await tablet.get())["result"]["groups"]["voice"] == {"future": {"keep": 1}}

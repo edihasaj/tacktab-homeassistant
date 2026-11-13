@@ -22,6 +22,7 @@ from copy import deepcopy
 import json
 import math
 import re
+import unicodedata
 from typing import Any
 
 from .voice_protocol import VoiceProtocolError
@@ -42,16 +43,22 @@ MAX_DOCUMENT_BYTES = 48 * 1024
 MAX_STRING_LENGTH = 512
 MAX_DEPTH = 3
 MAX_CONTAINER_ITEMS = 32
+MAX_NODES = 1024
 
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 # Names that are never shared, at any depth: credentials, routing and per-device
-# hardware or identity. Matched on word boundaries so ordinary names survive.
-_SECRET_RE = re.compile(
-    r"(token|secret|password|passwd|credential|api_?key|private_?key"
-    r"|(^|_)(pipelines?|outputs?|media_players?|arbitration|areas?)(_|$)"
-    r"|mic(rophone)?_?gain|input_gain|device_name)",
-    re.IGNORECASE,
+# hardware or identity. They are checked on the canonical form of a key (NFKC,
+# camelCase split, lowercase, everything else collapsed to "_"), once as
+# underscore-separated words and once with the underscores removed, so
+# ``api-key``, ``apiKey`` and ``api_key`` are all the same name.
+_DENIED_SUBSTRINGS = (
+    "token", "secret", "password", "passwd", "credential", "apikey", "privatekey",
+    "micgain", "microphonegain", "inputgain", "devicename", "deviceid", "installid",
+    "homeassistanturl", "pipeline", "mediaplayer", "outputtarget", "arbitration",
 )
+_DENIED_WORDS = frozenset({"output", "outputs", "area", "areas"})
+_CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_NON_WORD_RE = re.compile(r"[^a-z0-9]+")
 _CHIME_EVENTS = ("wake", "done", "error", "timer", "announcement")
 
 # Kiosk Satellite keeps hardware-dependent settings per device; so do we. The
@@ -184,30 +191,78 @@ KNOWN_KEYS: dict[str, dict[str, Validator]] = {
 }
 
 
+def canonical_key(key: str) -> str:
+    """The comparison form of a key: NFKC, camelCase split, lowercase, ``_`` separated."""
+    text = _CAMEL_RE.sub("_", unicodedata.normalize("NFKC", key)).lower()
+    return _NON_WORD_RE.sub("_", text).strip("_")
+
+
+def _denied(canonical: str) -> bool:
+    compact = canonical.replace("_", "")
+    return any(item in compact for item in _DENIED_SUBSTRINGS) or not _DENIED_WORDS.isdisjoint(canonical.split("_"))
+
+
 def is_excluded(key: str) -> bool:
-    """True for per-device, identity and credential keys."""
-    return key.lower() in EXCLUDED_KEYS or _SECRET_RE.search(key) is not None
+    """True for per-device, identity and credential keys, whatever their spelling."""
+    canonical = canonical_key(key)
+    return canonical in EXCLUDED_KEYS or _denied(canonical)
+
+
+def _printable_path_key(key: Any) -> str:
+    """A bounded, control-free rendering of a key for the ``dropped`` report."""
+    text = key if type(key) is str else type(key).__name__
+    return "".join(char if char.isprintable() else "?" for char in text[:64])
 
 
 def strip_excluded(value: Any, path: str, dropped: list[str]) -> Any:
-    """Return ``value`` without excluded or secret-like keys at any depth.
+    """Return ``value`` without disallowed keys at any depth.
 
-    Walks dicts and the dicts inside lists. Each removed entry is recorded in
-    ``dropped`` as its path, e.g. ``voice.future_provider.api_key`` or
-    ``voice.future[2].token``. Generic names such as ``name`` are excluded only at
-    the top of a group, where they would be a device field, not inside a value.
+    A nested key is kept only if it already has the canonical syntax
+    (``^[a-z][a-z0-9_]{0,63}$``, so no hyphens, capitals, fullwidth or look-alike
+    letters) and is not a credential, routing or per-device name. Everything
+    else is removed and recorded in ``dropped`` as its path, e.g.
+    ``voice.future_provider.api-key`` or ``voice.future[2].token``. Generic names
+    such as ``name`` are excluded only at the top of a group, where they would be
+    a device field, not inside a value.
+
+    The value must already have passed :func:`check_bounds`, which keeps this
+    recursion shallow.
     """
     if type(value) is dict:
         kept: dict[Any, Any] = {}
         for key, item in value.items():
-            if type(key) is str and (key.lower() in NESTED_EXCLUDED_KEYS or _SECRET_RE.search(key) is not None):
-                dropped.append(f"{path}.{key}")
+            if type(key) is not str or not _KEY_RE.match(key) or key in NESTED_EXCLUDED_KEYS or _denied(key):
+                dropped.append(f"{path}.{_printable_path_key(key)}")
                 continue
             kept[key] = strip_excluded(item, f"{path}.{key}", dropped)
         return kept
     if type(value) is list:
         return [strip_excluded(item, f"{path}[{index}]", dropped) for index, item in enumerate(value)]
     return value
+
+
+def check_bounds(value: Any) -> None:
+    """Reject over-deep or over-large JSON without recursing.
+
+    Iterative on purpose: a hostile value thousands of levels deep must produce a
+    structured error, not a RecursionError.
+    """
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    nodes = 0
+    while stack:
+        item, depth = stack.pop()
+        nodes += 1
+        if nodes > MAX_NODES:
+            _fail("Value is too large")
+        if type(item) is dict:
+            if depth >= MAX_DEPTH or len(item) > MAX_CONTAINER_ITEMS:
+                _fail("Object is too large")
+            nodes += len(item)
+            stack.extend((child, depth + 1) for child in item.values())
+        elif type(item) is list:
+            if depth >= MAX_DEPTH or len(item) > MAX_CONTAINER_ITEMS:
+                _fail("List is too large")
+            stack.extend((child, depth + 1) for child in item)
 
 
 def _json_value(value: Any, depth: int = 0) -> None:
@@ -274,9 +329,10 @@ def sanitize_groups(groups: Any, *, allow_empty: bool = False) -> tuple[dict[str
             if type(key) is not str:
                 _fail("Invalid key name")
             if is_excluded(key):
-                dropped.append(f"{group}.{key}")
+                dropped.append(f"{group}.{_printable_path_key(key)}")
                 continue
             if key not in KNOWN_KEYS[group]:
+                check_bounds(value)
                 value = strip_excluded(value, f"{group}.{key}", dropped)
             check_known_or_unknown(group, key, value)
             kept[key] = deepcopy(value)
@@ -332,6 +388,7 @@ def normalize_document(raw: Any) -> dict[str, Any]:
                 try:
                     if type(key) is str and not is_excluded(key):
                         if key not in KNOWN_KEYS[group]:
+                            check_bounds(value)
                             value = strip_excluded(value, f"{group}.{key}", [])
                         check_known_or_unknown(group, key, value)
                         doc["groups"][group][key] = deepcopy(value)

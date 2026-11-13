@@ -1,6 +1,7 @@
 """Pure fleet voice profile rules: schema, exclusions, unknown keys, merges, normalisation."""
 
 from copy import deepcopy
+import unicodedata
 
 import pytest
 
@@ -275,3 +276,104 @@ def test_no_known_profile_key_is_itself_excluded() -> None:
     from custom_components.tacktab.voice_profile import KNOWN_KEYS, is_excluded
 
     assert [(g, k) for g, keys in KNOWN_KEYS.items() for k in keys if is_excluded(k)] == []
+
+
+# -- key syntax allowlist and spelling variants -------------------------------
+VARIANTS = [
+    "api-key", "private-key", "deviceId", "device-id", "home-assistant-url", "apiKey", "API_KEY", "Api_Key",
+    "pаssword",  # Cyrillic a
+    "ａｐｉ＿ｋｅｙ",  # fullwidth "api_key"
+    "ｔｏｋｅｎ",  # fullwidth "token"
+    "access-token", "clientSecret", "mic-gain", "micGain", "install-id", "outputTarget", "area-id", "pipelineId",
+    "Kitchen Area", "tok​en", "x" * 65, "1abc", "_abc", "has.dot", "has space", "bad\x00key", "",
+]
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_nested_spelling_variants_are_dropped_and_reported(variant: str) -> None:
+    clean, dropped = sanitize_groups({"voice": {"future": {variant: "secret", "keep": 1, "list": [{variant: 1, "ok": 2}]}}})
+    assert clean["voice"]["future"] == {"keep": 1, "list": [{"ok": 2}]}
+    assert len(dropped) == 2 and all(path.startswith("voice.future") for path in dropped)
+    assert "secret" not in str(clean)
+    assert all(char.isprintable() for path in dropped for char in path)
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_top_level_spelling_variants_are_never_stored(variant: str) -> None:
+    try:
+        clean, dropped = sanitize_groups({"voice": {variant: "secret", "wake_sensitivity": 0.5}})
+    except ProfileError as err:
+        assert err.code == "invalid_profile"  # a malformed name rejects the whole update
+        return
+    assert clean == {"voice": {"wake_sensitivity": 0.5}} and len(dropped) == 1
+    doc, _ = apply_update(empty_document(), clean, {}, WRITER, "now")
+    assert "secret" not in str(doc)
+
+
+@pytest.mark.parametrize("variant", ["api-key", "deviceId", "device-id", "home-assistant-url", "private-key", "ａｐｉ＿ｋｅｙ"])
+def test_denied_spellings_are_reported_not_just_rejected_at_the_top_level(variant: str) -> None:
+    clean, dropped = sanitize_groups({"voice": {variant: 1, "wake_sensitivity": 0.5}})
+    assert clean == {"voice": {"wake_sensitivity": 0.5}} and dropped == [f"voice.{variant}"]
+
+
+def test_canonical_form_folds_case_width_and_separators() -> None:
+    from custom_components.tacktab.voice_profile import canonical_key
+
+    assert canonical_key("deviceId") == "device_id"
+    assert canonical_key("home-assistant-url") == "home_assistant_url"
+    assert canonical_key("ＡＰＩ＿Ｋｅｙ") == "api_key"
+    assert canonical_key("APIKey") == "apikey"
+
+
+def test_stored_documents_drop_nested_variants_on_load() -> None:
+    doc = normalize_document({"revision": 1, "groups": {"voice": {"future": {"api-key": "x", "deviceId": "d", "keep": 1}}}})
+    assert doc["groups"]["voice"] == {"future": {"keep": 1}}
+
+
+# -- bounded traversal --------------------------------------------------------
+def _deep(levels: int) -> dict:
+    value: dict = {}
+    for _ in range(levels):
+        value = {"a": value}
+    return value
+
+
+@pytest.mark.parametrize("levels", [4, 50, 1000, 100_000])
+def test_a_deep_value_is_a_structured_error_on_update(levels: int) -> None:
+    with pytest.raises(ProfileError) as err:
+        sanitize_groups({"voice": {"future": _deep(levels)}})
+    assert err.value.code == "invalid_profile"
+
+
+def test_deep_lists_and_wide_values_are_bounded_too() -> None:
+    nested_list: list = []
+    for _ in range(5000):
+        nested_list = [nested_list]
+    for value in (nested_list, [[0] * 32] * 32, {f"k{i}": 1 for i in range(33)}):
+        with pytest.raises(ProfileError) as err:
+            sanitize_groups({"voice": {"future": value}})
+        assert err.value.code == "invalid_profile"
+
+
+def test_values_at_the_limit_are_still_accepted() -> None:
+    clean, dropped = sanitize_groups({"voice": {"future": {"a": {"b": [1, 2, 3]}}, "wide": {f"k{i}": i for i in range(32)}}})
+    assert dropped == [] and clean["voice"]["future"] == {"a": {"b": [1, 2, 3]}}
+
+
+def test_load_drops_a_malformed_deep_value_and_keeps_the_rest() -> None:
+    doc = normalize_document({
+        "revision": 3,
+        "groups": {"voice": {"wake_sensitivity": 0.2, "future_deep": _deep(1000), "future_ok": {"a": 1}}, "timers": {"timer_scale": 1.1}},
+    })
+    assert doc["groups"]["voice"] == {"wake_sensitivity": 0.2, "future_ok": {"a": 1}}
+    assert doc["groups"]["timers"] == {"timer_scale": 1.1} and doc["revision"] == 3
+
+
+def test_a_cyrillic_lookalike_password_key_is_dropped_not_rewritten() -> None:
+    """NFKC leaves Cyrillic "а" alone, and replacing it with "_" would give p_ssword."""
+    key = "p\u0430ssword"
+    assert key != "password" and unicodedata.normalize("NFKC", key) == key
+    clean, dropped = sanitize_groups({"voice": {"future": {key: "hunter2", "keep": 1, "p_ssword": "x"}}})
+    assert clean["voice"]["future"] == {"keep": 1, "p_ssword": "x"}  # no rewrite into another key
+    assert dropped == [f"voice.future.{key}"]
+    assert "hunter2" not in str(clean)
