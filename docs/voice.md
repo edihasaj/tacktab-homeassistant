@@ -63,6 +63,66 @@ bounded mirror until native dismisses them, so reconnect preserves an active
 alarm. Assist Core timers are memory-only: a Home Assistant restart returns an
 empty timer snapshot and does not recreate timers.
 
+## Migrate from Voice Satellite
+
+Two WebSocket commands serve the native migration wizard. Both require an
+**administrator** user and a socket that has completed Tacktab pairing for the
+tablet (its `epoch` must match); a non-admin or unpaired socket gets
+`unauthorized` or `disconnected` and no data.
+
+`tacktab/voice/migration_plan` reads the installed `voice_satellite`
+integration's Assist satellites and returns a read-only plan. Each candidate
+has one typed `settings` object; a value is `null` when the source did not
+say, and the clients then leave their own preference alone.
+
+| Key | Type | Source |
+| --- | --- | --- |
+| `assistant`, `assistant_preferred`, `assistant_pipeline_id` | string, bool, string | Pipeline select (`preferred` or a name); the id is the resolved stable pipeline. |
+| `wake_detection` | `local` / `server` / `disabled` | Wake word detection select. |
+| `wake_engine`, `wake_engine_supported` | `micro_wake_word` / `open_wake_word` / `vs_wake_word`, bool | microWakeWord and openWakeWord are carried; only vsWakeWord (no native counterpart) is reported in `warnings`. |
+| `wake_sensitivity`, `wake_sensitivity_label` | float 0–1, string | Wake word sensitivity select: Slightly 0.25, Moderately 0.5, Very 0.75, one scale for every engine (upstream's per-engine scales differ). `null` when unknown. |
+| `wake_word`, `wake_word_source` | string | Wake word model select. Upstream ids are mapped to Tacktab's (`ok_nabu` becomes `okay_nabu`); `wake_word_source` keeps the original. |
+| `finished_speaking` | `default` / `relaxed` / `aggressive` | Finished-speaking (VAD) select. |
+| `conversation`, `conversation_seconds`, `conversation_memory`, `conversation_memory_rounded` | `persistent` / `timed` / `isolated`, int, option, bool | Session duration select (`5_minutes`, `isolated`, ...). `conversation_memory` names the Tacktab option that keeps context at least as long; `conversation_memory_rounded` is true when that is longer than the original. |
+| `timer_muted` | bool | Mute timers switch. |
+
+Skins, the second wake word/assistant and card-only timer display options have
+no mapping and are listed in `warnings`.
+
+References come from the automations and scripts Home Assistant has loaded
+(including `!include`, packages and UI-created items). Only when a component is
+not loaded is its YAML file read, keeping `!secret`/`!include` nodes. If any
+configuration could not be inspected, `references_complete` is `false` and
+`reference_warnings` says why, so an empty list is never presented as
+"nothing found". Nothing is written, and the old Voice Satellite entry is never
+changed.
+
+`tacktab/voice/migration_apply` writes only this tablet's Tacktab selects:
+`assistant` sets the primary pipeline to the resolved stable id (`Preferred`
+and `preferred` both mean HA's preferred pipeline), and `conversation` sets the
+new **Finished speaking** select (how much silence ends a command) and the new
+**Conversation memory** select. An idle check runs before anything else, whichever items are carried, and
+inputs are validated before any write, so a busy tablet (a run, media lease,
+realtime session or configuration change) or an unknown pipeline changes
+nothing and returns an error. The result echoes
+`candidate_entity_id` and what was `applied`; the native client stores its own
+choices only after this success. Review every reported reference yourself: the
+replacement timer event is `tacktab_voice_timer`, but the bridge intentionally
+does not rewrite an automation or script.
+
+## Conversation memory
+
+Each tablet has a **Conversation memory** select: how long Assist keeps context
+between activations. Home Assistant's own Assist satellite keeps a conversation
+for five minutes of inactivity, so `5_minutes` is the default and matches the
+earlier behaviour. `isolated` starts a new conversation on every activation and
+`1_minute` after a minute of quiet. A follow-up that Home Assistant authorized (the tablet listens again after a question) continues the same activation, so it keeps its context even when memory is `isolated`. `15_minutes` and `until_restart` go beyond
+Home Assistant's five minutes: Tacktab refreshes the chat session through Home
+Assistant's own helper until the retention has passed, and `until_restart` never
+lets go until Home Assistant restarts. This is separate from follow-up
+listening after a question, which the native apps control. Realtime
+conversations keep their own bounded memory.
+
 ## Timer events
 
 Every timer on a paired tablet also fires one Home Assistant bus event,

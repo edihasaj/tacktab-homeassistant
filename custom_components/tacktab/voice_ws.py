@@ -9,7 +9,8 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
-from .voice_bridge import VoiceBridgeError, async_get_bridge
+from .voice_bridge import async_get_bridge
+from .voice_migration_ws import APPLY_COMMAND, PLAN_COMMAND, handle_migration_apply, handle_migration_plan
 from .voice_protocol import PREFIX, VoiceProtocolError, validate_message
 from .voice_setup import async_ensure_voice_entry
 from .const import REALTIME_ENABLED
@@ -34,6 +35,8 @@ def async_register_voice_websocket_api(hass: HomeAssistant) -> None:
             _handle_voice_command,
             schema=vol.Schema({}, extra=vol.ALLOW_EXTRA),
         )
+    websocket_api.async_register_command(hass, PLAN_COMMAND, handle_migration_plan, schema=vol.Schema({}, extra=vol.ALLOW_EXTRA))
+    websocket_api.async_register_command(hass, APPLY_COMMAND, handle_migration_apply, schema=vol.Schema({}, extra=vol.ALLOW_EXTRA))
     from .voice_profile_ws import async_register_voice_profile_api
 
     async_register_voice_profile_api(hass)
