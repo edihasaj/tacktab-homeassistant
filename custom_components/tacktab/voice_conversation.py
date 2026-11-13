@@ -72,10 +72,14 @@ class ConversationMemory:
             return True
         return retention is not None and self._touched is not None and self._now() - self._touched > retention
 
-    def before_run(self, satellite: Any) -> None:
-        """Start a new conversation when the retention has run out (or is zero)."""
+    def before_run(self, satellite: Any, *, follow_up: bool = False) -> None:
+        """Start a new conversation when the retention has run out (or is zero).
+
+        A server-authorized follow-up continues the activation that asked for it, so
+        it keeps its context even when the retention is `isolated`.
+        """
         self.cancel()
-        if self.expired():
+        if not follow_up and self.expired():
             satellite._conversation_id = None
 
     def after_run(self, satellite: Any) -> None:

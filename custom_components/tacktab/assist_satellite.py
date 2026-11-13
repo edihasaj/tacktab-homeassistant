@@ -59,7 +59,7 @@ async def _start_run(device: VoiceDevice, run: VoiceRun, msg: dict[str, Any]) ->
     assert session is not None and run.context_message is not None
     memory = satellite.conversation_memory
     if memory is not None:
-        memory.before_run(satellite)  # a new conversation when the retention ran out
+        memory.before_run(satellite, follow_up=msg.get("trigger") == "follow_up")  # a new conversation when the retention ran out, except for a follow-up
     owner = f"assist:{run.run_id}"
     device.async_set_activity(owner, "assist", run.slot_id)
     try:

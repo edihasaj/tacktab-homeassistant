@@ -88,7 +88,7 @@ Each tablet has a **Conversation memory** select: how long Assist keeps context
 between activations. Home Assistant's own Assist satellite keeps a conversation
 for five minutes of inactivity, so `5_minutes` is the default and matches the
 earlier behaviour. `isolated` starts a new conversation on every activation and
-`1_minute` after a minute of quiet. `15_minutes` and `until_restart` go beyond
+`1_minute` after a minute of quiet. A follow-up that Home Assistant authorized (the tablet listens again after a question) continues the same activation, so it keeps its context even when memory is `isolated`. `15_minutes` and `until_restart` go beyond
 Home Assistant's five minutes: Tacktab refreshes the chat session through Home
 Assistant's own helper until the retention has passed, and `until_restart` never
 lets go until Home Assistant restarts. This is separate from follow-up
