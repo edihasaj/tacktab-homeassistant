@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlsplit
+import re
+import unicodedata
 
 
 RESULT_VERSION = 1
 MAX_TEXT = 512
 MAX_URL = 2_048
+_ABSOLUTE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*)://([^/?#]*)(.*)$", re.DOTALL)
+_AUTHORITY = re.compile(r"^(?:\[[0-9A-Fa-f:.]+\]|[^\[\]:@\s/?#\\]+)(?::([0-9]{1,5}))?$")
 _KINDS = frozenset(("text", "tool", "weather", "entity", "image", "video", "number"))
 
 
@@ -60,27 +63,26 @@ def sanitize_media_url(value: Any) -> str | None:
     Allowed: ``https://host/...`` (scheme matched case-insensitively and
     normalized to lowercase) or a root-relative path such as ``/api/image_proxy/x``.
     Rejected: any other scheme (http, file, data), protocol-relative ``//host``,
-    userinfo, whitespace/control characters, backslashes, empty hosts, and values
-    longer than ``MAX_URL`` (never truncated, because a clipped URL is a different
-    URL).  Parser errors such as ``https://[`` reject the value so the caller falls
-    back to the spoken text.
+    userinfo, whitespace/control characters, backslashes, malformed hosts or ports
+    (``https://[``), and values longer than ``MAX_URL`` (never truncated, because a
+    clipped URL is a different URL).  A rejected URL makes the caller fall back to
+    the spoken text.
     """
     if not isinstance(value, str):
         return None
     text = value.strip()
-    if not text or len(text) > MAX_URL or "\\" in text or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in text):
+    if not text or len(text) > MAX_URL or any(char.isspace() or char == "\\" or unicodedata.category(char) == "Cc" for char in text):
         return None
     if text.startswith("/"):
         return None if text.startswith("//") else text
-    try:
-        parsed = urlsplit(text)
-        host = parsed.hostname
-        parsed.port  # noqa: B018 - raises ValueError for a malformed port
-    except ValueError:
+    match = _ABSOLUTE.match(text)
+    if match is None:
         return None
-    if parsed.scheme.lower() != "https" or not host or "@" in parsed.netloc:
+    scheme, authority, rest = match.groups()
+    host = _AUTHORITY.match(authority)
+    if scheme.lower() != "https" or host is None or (host.group(1) and int(host.group(1)) > 65535):
         return None
-    return "https" + text[len(parsed.scheme):]
+    return f"https://{authority}{rest}"
 
 
 def _card(kind: str, *, title: str, text: str | None = None, **extra: Any) -> dict[str, Any]:
