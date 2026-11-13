@@ -29,9 +29,15 @@ responses may opt into a typed card through their response data; otherwise the
 client receives its normal speech text.  Tool output is reduced to a safe
 plain-text line such as “Ran script Goodnight”.
 
-Media URLs must be HTTPS, or a root-relative Home Assistant URL which the
-native app resolves against its authenticated configured origin.  The bridge
-rejects file URLs, HTTP LAN URLs and protocol-relative URLs.  It never reads
+Media URLs follow one policy shared with the Android and iOS apps (vectors in
+`tests/fixtures/voice-url-vectors.json`, a copy of the app repository's
+`shared/voice-url-vectors.json`): HTTPS (scheme case is normalized to
+lowercase) or a root-relative Home Assistant path which the native app resolves
+against its authenticated configured origin.  The bridge rejects other schemes,
+HTTP LAN URLs, protocol-relative URLs, userinfo, whitespace, backslashes,
+malformed hosts or ports, and values over 2,048 characters (never truncating).
+A rejected media URL falls back to the spoken-text card.  Weather keeps a
+legitimate `0` temperature.  It never reads
 Home Assistant conversation history with a tablet token; where an
 administrator supplies richer context through a normal pipeline/tool result,
 the same bounded sanitization applies.  Protocol 1 and 2 sessions do not

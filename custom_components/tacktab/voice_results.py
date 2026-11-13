@@ -31,7 +31,7 @@ def result_from_intent(intent_output: Any) -> dict[str, Any] | None:
     if kind == "weather" or isinstance(data.get("weather"), Mapping):
         weather = data.get("weather") if isinstance(data.get("weather"), Mapping) else data
         return _card("weather", title=_string(weather.get("title")) or "Weather", text=speech or _string(weather.get("forecast")),
-                     condition=_string(weather.get("condition")), temperature=_number(weather.get("temperature") or weather.get("temp")),
+                     condition=_string(weather.get("condition")), temperature=_first_number(weather, "temperature", "temp"),
                      high=_number(weather.get("high")), low=_number(weather.get("low")), forecast=_string(weather.get("forecast")))
     media_kind = "video" if kind == "video" else "image" if kind == "image" else None
     media_url = sanitize_media_url(data.get("url") or data.get("image_url") or data.get("video_url"))
@@ -55,16 +55,32 @@ def tool_use_result(name: str, result: Any, failed: bool) -> dict[str, Any]:
 
 
 def sanitize_media_url(value: Any) -> str | None:
-    """Allow HTTPS or a relative HA API path; reject file/LAN URL injection."""
-    text = _string(value, MAX_URL)
-    if text is None or any(char.isspace() for char in text):
+    """Apply the one Tacktab card URL policy shared with the Android and iOS apps.
+
+    Allowed: ``https://host/...`` (scheme matched case-insensitively and
+    normalized to lowercase) or a root-relative path such as ``/api/image_proxy/x``.
+    Rejected: any other scheme (http, file, data), protocol-relative ``//host``,
+    userinfo, whitespace/control characters, backslashes, empty hosts, and values
+    longer than ``MAX_URL`` (never truncated, because a clipped URL is a different
+    URL).  Parser errors such as ``https://[`` reject the value so the caller falls
+    back to the spoken text.
+    """
+    if not isinstance(value, str):
         return None
-    parsed = urlsplit(text)
-    if parsed.scheme == "https" and parsed.hostname:
-        return text
-    if not parsed.scheme and not parsed.netloc and text.startswith("/") and not text.startswith("//"):
-        return text
-    return None
+    text = value.strip()
+    if not text or len(text) > MAX_URL or "\\" in text or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in text):
+        return None
+    if text.startswith("/"):
+        return None if text.startswith("//") else text
+    try:
+        parsed = urlsplit(text)
+        host = parsed.hostname
+        parsed.port  # noqa: B018 - raises ValueError for a malformed port
+    except ValueError:
+        return None
+    if parsed.scheme.lower() != "https" or not host or "@" in parsed.netloc:
+        return None
+    return "https" + text[len(parsed.scheme):]
 
 
 def _card(kind: str, *, title: str, text: str | None = None, **extra: Any) -> dict[str, Any]:
@@ -105,6 +121,15 @@ def _string(value: Any, limit: int = MAX_TEXT) -> str | None:
         return None
     text = value.strip()
     return text[:limit] if text and not any(ord(char) < 32 for char in text) else None
+
+
+def _first_number(data: Mapping[str, Any], *keys: str) -> int | float | None:
+    """Return the first valid number, keeping a legitimate zero (0 °C)."""
+    for key in keys:
+        number = _number(data.get(key))
+        if number is not None:
+            return number
+    return None
 
 
 def _number(value: Any) -> int | float | None:

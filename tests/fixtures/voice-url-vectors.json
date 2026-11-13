@@ -1,0 +1,32 @@
+{
+  "description": "Conversation card URL policy shared by the Android app, the iOS app and the Home Assistant companion. HTTPS or root-relative only; scheme case is normalized to lowercase; userinfo, whitespace, backslashes, other schemes and protocol-relative URLs are rejected. Values over 2048 characters are rejected, never truncated (tested in each platform).",
+  "maxLength": 2048,
+  "vectors": [
+    {"input": "https://cdn.example.test/image.jpg", "expected": "https://cdn.example.test/image.jpg"},
+    {"input": "HTTPS://CDN.example.test/a.jpg", "expected": "https://CDN.example.test/a.jpg"},
+    {"input": "Https://cdn.example.test:8443/a.jpg?x=1#f", "expected": "https://cdn.example.test:8443/a.jpg?x=1#f"},
+    {"input": "  https://cdn.example.test/a.jpg  ", "expected": "https://cdn.example.test/a.jpg"},
+    {"input": "/api/image_proxy/media", "expected": "/api/image_proxy/media"},
+    {"input": "/api/image_proxy/media?token=abc", "expected": "/api/image_proxy/media?token=abc"},
+    {"input": "/", "expected": "/"},
+    {"input": "http://cdn.example.test/a.jpg", "expected": null},
+    {"input": "http://192.168.1.4/image.jpg", "expected": null},
+    {"input": "//attacker.test/a.jpg", "expected": null},
+    {"input": "/\\attacker.test/a.jpg", "expected": null},
+    {"input": "https://cdn.example.test\\@attacker.test/a.jpg", "expected": null},
+    {"input": "https://user:pw@cdn.example.test/a.jpg", "expected": null},
+    {"input": "https://user@cdn.example.test/a.jpg", "expected": null},
+    {"input": "https://", "expected": null},
+    {"input": "https:///a.jpg", "expected": null},
+    {"input": "https://[", "expected": null},
+    {"input": "https://cdn.example.test:99999/a.jpg", "expected": null},
+    {"input": "file:///private/image.jpg", "expected": null},
+    {"input": "javascript:alert(1)", "expected": null},
+    {"input": "data:image/png;base64,AAAA", "expected": null},
+    {"input": "relative/path.png", "expected": null},
+    {"input": "https://cdn.example.test/a b.jpg", "expected": null},
+    {"input": "https://cdn.example.test/a\nb.jpg", "expected": null},
+    {"input": "", "expected": null},
+    {"input": "   ", "expected": null}
+  ]
+}
