@@ -56,6 +56,65 @@ It respects entities exposed to Assist. Complete validated calls execute once;
 streaming argument fragments never execute. HA timer tools use the tablet's
 device ID and feed the same authoritative native timer mirror.
 
+### Room awareness
+
+Every realtime conversation starts with the tablet's Home Assistant device name
+and its area written into the provider instructions, so "turn on the lights"
+means the lights in this tablet's area unless another room is named. The area is
+the device's effective area in Home Assistant: the device entry itself, or the
+area it inherits from its parent device. Move the tablet between rooms in Home
+Assistant and the next conversation follows it; no provider setting changes.
+
+A regular Assist turn already gets the same context from Home Assistant: the
+satellite entity's `device_id` and `satellite_id` reach the conversation agent,
+which resolves the satellite's area as the preferred area for intents. That is
+unchanged and needs nothing extra here. Realtime sessions do not run an Assist
+pipeline, which is why the integration adds the name and area itself.
+
+### Scripts know which tablet asked
+
+Every script the realtime model runs receives two bridge-owned variables:
+
+| Variable | Value |
+| --- | --- |
+| `tacktab_device_id` | The tablet's Home Assistant device ID. |
+| `tacktab_device_name` | The tablet's Home Assistant device name. |
+
+The script does not have to declare them. If it does declare a field with
+either name, the field is hidden from the model's tool schema and filled in by
+the bridge. Values supplied by the model are discarded, so a conversation can
+never act on behalf of another tablet. This applies only to script tools; other
+HA tools keep their normal schema.
+
+```yaml
+script:
+  where_am_i:
+    alias: Where am I
+    sequence:
+      - action: notify.send_message
+        target:
+          entity_id: notify.mobile_app_phone
+        data:
+          message: >-
+            Asked from {{ tacktab_device_name }}
+            in {{ area_name(tacktab_device_id) or 'no area' }}.
+```
+
+```yaml
+automation:
+  - alias: Follow the kitchen tablet
+    triggers:
+      - trigger: state
+        entity_id: sensor.kitchen_tablet_voice_turn
+        to: realtime
+    actions:
+      - action: script.where_am_i
+```
+
+Timers started from a realtime conversation publish the same
+`tacktab_voice_timer` event as Assist timers; see [voice.md](voice.md) for its
+fields and dedupe rules.
+
 Only one Assist turn, local/remote output or realtime session owns a tablet's
 media lease. Pending starts have a 15-second deadline. Cancellation, disconnect,
 provider errors and unload release ownership. Tools that already changed the

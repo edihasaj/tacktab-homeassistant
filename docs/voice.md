@@ -37,3 +37,73 @@ changes are authoritative Core events. Finished timer records remain in the
 bounded mirror until native dismisses them, so reconnect preserves an active
 alarm. Assist Core timers are memory-only: a Home Assistant restart returns an
 empty timer snapshot and does not recreate timers.
+
+## Timer events
+
+Every timer on a paired tablet also fires one Home Assistant bus event,
+`tacktab_voice_timer`, from the same authoritative adapter that feeds the
+tablet. It covers timers started by voice, by a realtime conversation or by
+`intent`/`assist_satellite` actions:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `event_type` | string | `started`, `updated`, `paused`, `resumed`, `cancelled`, `finished` or `dismissed`. |
+| `timer_id` | string | Home Assistant's timer ID, stable across the timer's events. |
+| `name` | string | The timer's name, empty when it has none. |
+| `total_seconds` | integer | The duration the timer was started with. Added time does not change it. |
+| `seconds_left` | integer | Seconds left when the event fired. |
+| `is_active` | boolean | False while paused. |
+| `device_id` | string | The tablet's Home Assistant device ID. |
+| `device_name` | string | The tablet's Home Assistant device name. |
+
+`paused` and `resumed` are reported separately because Home Assistant Core
+reports both through its generic `updated` handler. Reconnects, snapshots and a
+replayed handler callback never repeat an event: the adapter remembers the last
+published state per timer and publishes only a new transition. An explicit
+repeat of the same `pause`, `resume`, add or subtract that Core ignores also
+produces no duplicate event.
+
+```yaml
+automation:
+  - alias: Flash the lamps when any tablet timer ends
+    triggers:
+      - trigger: event
+        event_type: tacktab_voice_timer
+        event_data:
+          event_type: finished
+    actions:
+      - action: light.turn_on
+        target:
+          entity_id: light.living_room
+        data:
+          flash: long
+      - action: notify.send_message
+        target:
+          entity_id: notify.mobile_app_phone
+        data:
+          message: >-
+            The {{ trigger.event.data.name or 'timer' }} on the
+            {{ trigger.event.data.device_name }} is done.
+```
+
+## Which tablet is talking
+
+Each paired tablet has a **Voice turn** sensor. Its state is `idle` when the
+tablet is quiet, `realtime` during a realtime conversation and `assist` during
+an Assist pipeline turn. Attributes add `device_id`, `device_name`, `area`,
+`slot_id` and `active`. This exists because an `assist_satellite` entity stays
+idle during a realtime conversation, so it cannot tell automations which
+tablet is talking.
+
+```yaml
+automation:
+  - alias: Pause the TV while the kitchen tablet is talking
+    triggers:
+      - trigger: state
+        entity_id: sensor.kitchen_tablet_voice_turn
+        from: idle
+    actions:
+      - action: media_player.media_pause
+        target:
+          entity_id: media_player.kitchen_tv
+```
