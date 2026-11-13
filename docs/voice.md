@@ -19,6 +19,25 @@ standard HA result/error envelopes and sends subscription events: `snapshot`,
 `state`, `pipeline`, `play`, `cancel_action`, `timer`, `claim_result`, and
 `session_closed`.
 
+## Conversation results (protocol 3)
+
+Protocol 3 adds bounded `conversation_result` events after an Assist
+`intent-end` and after a completed realtime tool.  The payload is versioned
+(`version: 1`) and contains native display data only: text, tool use, weather,
+an entity state, image, video, or numeric/stock value and change.  Core intent
+responses may opt into a typed card through their response data; otherwise the
+client receives its normal speech text.  Tool output is reduced to a safe
+plain-text line such as “Ran script Goodnight”.
+
+Media URLs must be HTTPS, or a root-relative Home Assistant URL which the
+native app resolves against its authenticated configured origin.  The bridge
+rejects file URLs, HTTP LAN URLs and protocol-relative URLs.  It never reads
+Home Assistant conversation history with a tablet token; where an
+administrator supplies richer context through a normal pipeline/tool result,
+the same bounded sanitization applies.  Protocol 1 and 2 sessions do not
+receive these events, so older native clients retain their existing sequence
+handling and text conversation.
+
 `connect` returns a new epoch, binary handler id, and atomic snapshot. Every
 later event includes strictly increasing `seq`; reconnecting replaces the
 epoch. Wake claims are scored in one server-timed 400 ms SNR window, with a

@@ -1,4 +1,4 @@
-"""Strict validation for the Tacktab voice websocket protocol versions 1 and 2."""
+"""Strict validation for the Tacktab voice websocket protocol versions 1–3."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from uuid import UUID
 
 from .voice_models import SlotConfig, VoiceCapabilities, VoiceStatus, WakeWord
 
-PROTOCOL_VERSION = 2
-SUPPORTED_PROTOCOLS = frozenset((1, 2))
+PROTOCOL_VERSION = 3
+SUPPORTED_PROTOCOLS = frozenset((1, 2, 3))
 PREFIX = "tacktab/voice/"
 SLOT_IDS = frozenset(("primary", "secondary"))
 MIC_PERMISSIONS = frozenset(("granted", "denied", "undetermined", "restricted"))
