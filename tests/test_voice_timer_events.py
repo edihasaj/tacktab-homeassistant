@@ -49,8 +49,10 @@ async def _device(hass: HomeAssistant):
     return entry.runtime_data
 
 
-@callback
 def _recorder(events: list[dict]):
+    # The listener itself must be a callback; otherwise HA runs it in the
+    # executor and an assertion right after async_fire can miss events.
+    @callback
     def record(event) -> None:
         events.append(dict(event.data))
 
@@ -188,6 +190,7 @@ async def test_each_tablet_reports_its_own_device_identity(hass: HomeAssistant) 
         "started",
         {"timer_id": "t1", "name": "Tea", "total_seconds": 60, "remaining_seconds": 60, "is_active": True},
     )
+    await hass.async_block_till_done()
     assert [event["device_id"] for event in events] == ["ha-device-unregistered", first.device_id]
     assert events[0]["device_name"] == "Garage tablet"
     assert events[1]["device_name"] == "Hallway tablet"
