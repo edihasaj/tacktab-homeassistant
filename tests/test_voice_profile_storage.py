@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -155,3 +155,43 @@ async def test_a_newer_minor_version_is_read_only_and_keeps_unknown_content(hass
     assert err.value.code == "profile_read_only"
     # Nothing was rewritten: unknown group, metadata and the 1.2 version survive.
     assert hass_storage[STORAGE_KEY] == newer
+
+
+def _deep(levels: int) -> dict:
+    value: dict = {}
+    for _ in range(levels):
+        value = {"a": value}
+    return value
+
+
+async def test_loading_a_deep_stored_value_repairs_it_and_does_not_block_setup(hass: HomeAssistant, hass_storage) -> None:
+    # The storage fixture deep-copies documents (and would itself recurse), so hand
+    # the manager what Home Assistant's JSON loader returns from disk directly.
+    data = {"revision": 5, "groups": {"voice": {"wake_sensitivity": 0.2, "future_deep": _deep(1000)}}}
+    manager = VoiceProfileManager(hass)
+    with patch.object(manager._store, "async_load", AsyncMock(return_value=data)):
+        await manager.async_load()
+    assert not manager.read_only
+    assert manager.doc["revision"] == 5 and manager.doc["groups"]["voice"] == {"wake_sensitivity": 0.2}
+    result = await manager.async_update(base_revision=5, writer=WRITER, groups={"voice": {"wake_sensitivity": 0.3}})
+    assert result["revision"] == 6
+
+
+async def test_an_unreadable_document_never_raises_from_load_and_is_not_overwritten(hass: HomeAssistant, hass_storage) -> None:
+    stored = {"version": 1, "minor_version": 1, "key": STORAGE_KEY, "data": {"revision": 5, "groups": {}}}
+    hass_storage[STORAGE_KEY] = deepcopy(stored)
+    with patch("custom_components.tacktab.voice_profile_manager.normalize_document", side_effect=RecursionError):
+        manager = await _manager(hass)  # must not raise
+    assert manager.read_only and manager.doc["revision"] == 0
+    with pytest.raises(ProfileError) as err:
+        await manager.async_update(base_revision=0, writer=WRITER, groups={"voice": {"wake_sensitivity": 0.3}})
+    assert err.value.code == "profile_read_only"
+    assert hass_storage[STORAGE_KEY] == stored
+
+
+async def test_a_deep_update_is_invalid_profile_and_changes_nothing(hass: HomeAssistant, hass_storage) -> None:
+    manager = await _manager(hass)
+    with pytest.raises(ProfileError) as err:
+        await manager.async_update(base_revision=0, writer=WRITER, groups={"voice": {"future": _deep(1000)}})
+    assert err.value.code == "invalid_profile"
+    assert manager.doc["revision"] == 0 and STORAGE_KEY not in hass_storage

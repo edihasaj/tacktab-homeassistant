@@ -8,6 +8,7 @@ revision, persists, and only then tells the following tablets.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import OrderedDict
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -32,6 +33,8 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
     from .voice_bridge import VoiceDevice
+
+_LOGGER = logging.getLogger(__name__)
 
 PROFILE_DATA = "tacktab_voice_profile"
 PROFILE_LOCK = "tacktab_voice_profile_lock"
@@ -80,7 +83,13 @@ class VoiceProfileManager:
         except Exception:
             self.read_only = True
             return
-        self.doc = normalize_document(stored)
+        try:
+            self.doc = normalize_document(stored)
+        except Exception:  # never fail setup over a document this release cannot read
+            _LOGGER.exception("Voice profile storage could not be read; the profile is unavailable until it is fixed")
+            self.doc = empty_document()
+            # Keep the unreadable file: a later write would replace it.
+            self.read_only = True
 
     # -- listeners -----------------------------------------------------------
     @callback
