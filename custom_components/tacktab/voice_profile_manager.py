@@ -43,11 +43,20 @@ OPTION_GROUPS = "fleet_profile_groups"
 RECENT_REQUESTS = 32
 
 
+class StorageTooNewError(Exception):
+    """Storage was written by a newer release. Not NotImplementedError: Home Assistant
+    swallows that for a same-major version and would save the document back."""
+
+
 class _ProfileStore(Store[dict[str, Any]]):
     async def _async_migrate_func(self, old_major_version: int, old_minor_version: int, old_data: dict[str, Any]) -> dict[str, Any]:
-        """Bring an older or sparse document forward; refuse to guess about newer ones."""
-        if old_major_version > STORAGE_VERSION:
-            raise NotImplementedError("Voice profile storage was written by a newer Tacktab")
+        """Bring an older or sparse document forward; refuse to guess about newer ones.
+
+        A newer major *or minor* version may hold groups and metadata this release
+        cannot represent, and saving would drop them, so it is never migrated.
+        """
+        if (old_major_version, old_minor_version) > (STORAGE_VERSION, STORAGE_MINOR_VERSION):
+            raise StorageTooNewError("Voice profile storage was written by a newer Tacktab")
         return normalize_document(old_data)
 
 

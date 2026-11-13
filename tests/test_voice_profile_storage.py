@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from unittest.mock import patch
 
 import pytest
@@ -135,3 +136,22 @@ async def test_invalid_input_is_rejected_before_any_revision_check_or_write(hass
         await manager.async_update(base_revision=5, writer=WRITER, groups={"voice": {"wake_sensitivity": 9}})
     assert err.value.code == "invalid_profile"
     assert STORAGE_KEY not in hass_storage
+
+
+async def test_a_newer_minor_version_is_read_only_and_keeps_unknown_content(hass: HomeAssistant, hass_storage) -> None:
+    """Version 1.2 may hold groups and metadata this release cannot represent."""
+    newer = {
+        "version": 1, "minor_version": 2, "key": STORAGE_KEY,
+        "data": {
+            "schema_version": 2, "revision": 4, "groups": {"voice": {"wake_sensitivity": 0.2}, "gestures": {"swipe": True}},
+            "sync": {"cursor": "abc"},
+        },
+    }
+    hass_storage[STORAGE_KEY] = deepcopy(newer)
+    manager = await _manager(hass)
+    assert manager.read_only
+    with pytest.raises(ProfileError) as err:
+        await manager.async_update(base_revision=0, writer=WRITER, groups={"voice": {"wake_sensitivity": 0.3}})
+    assert err.value.code == "profile_read_only"
+    # Nothing was rewritten: unknown group, metadata and the 1.2 version survive.
+    assert hass_storage[STORAGE_KEY] == newer

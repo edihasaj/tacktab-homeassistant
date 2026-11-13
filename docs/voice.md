@@ -283,5 +283,6 @@ Administrators only (a non-admin gets `unauthorized`):
 * Because a push merges key by key, an older app cannot erase a newer app's
   keys. Known keys with out-of-range values reject the whole update.
 * Storage is `.storage/tacktab.voice_profile`, version 1.1. A document written
-  by an older layout is repaired on load; one from a newer major version makes
-  the profile read-only instead of being overwritten.
+  by an older layout is repaired on load; one from a newer major or minor version
+  makes the profile read-only (writes answer `profile_read_only`) instead of being
+  overwritten, so unknown groups and metadata survive a downgrade.
