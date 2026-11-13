@@ -55,9 +55,9 @@ say, and the clients then leave their own preference alone.
 | `assistant`, `assistant_preferred`, `assistant_pipeline_id` | string, bool, string | Pipeline select (`preferred` or a name); the id is the resolved stable pipeline. |
 | `wake_detection` | `local` / `server` / `disabled` | Wake word detection select. |
 | `wake_engine`, `wake_engine_supported` | `microwakeword` / `openwakeword` / `vswakeword`, bool | Only microWakeWord is carried; other engines are reported in `warnings`. |
-| `wake_word` | string | Wake word model select. |
+| `wake_word`, `wake_word_source` | string | Wake word model select. Upstream ids are mapped to Tacktab's (`ok_nabu` becomes `okay_nabu`); `wake_word_source` keeps the original. |
 | `finished_speaking` | `default` / `relaxed` / `aggressive` | Finished-speaking (VAD) select. |
-| `conversation`, `conversation_seconds` | `persistent` / `timed` / `isolated`, int | Session duration select (`5_minutes`, `isolated`, ...). |
+| `conversation`, `conversation_seconds`, `conversation_memory`, `conversation_memory_rounded` | `persistent` / `timed` / `isolated`, int, option, bool | Session duration select (`5_minutes`, `isolated`, ...). `conversation_memory` names the Tacktab option that keeps context at least as long; `conversation_memory_rounded` is true when that is longer than the original. |
 | `timer_muted` | bool | Mute timers switch. |
 
 Skins, the second wake word/assistant and card-only timer display options have
@@ -74,13 +74,26 @@ changed.
 `tacktab/voice/migration_apply` writes only this tablet's Tacktab selects:
 `assistant` sets the primary pipeline to the resolved stable id (`Preferred`
 and `preferred` both mean HA's preferred pipeline), and `conversation` sets the
-new **Finished speaking** select, which HA's Assist satellite uses for how much
-silence ends a command. Inputs are validated first, so a busy tablet or an
+new **Finished speaking** select (how much silence ends a command) and the new
+**Conversation memory** select. Inputs are validated first, so a busy tablet or an
 unknown pipeline changes nothing and returns an error. The result echoes
 `candidate_entity_id` and what was `applied`; the native client stores its own
 choices only after this success. Review every reported reference yourself: the
 replacement timer event is `tacktab_voice_timer`, but the bridge intentionally
 does not rewrite an automation or script.
+
+## Conversation memory
+
+Each tablet has a **Conversation memory** select: how long Assist keeps context
+between activations. Home Assistant's own Assist satellite keeps a conversation
+for five minutes of inactivity, so `5_minutes` is the default and matches the
+earlier behaviour. `isolated` starts a new conversation on every activation and
+`1_minute` after a minute of quiet. `15_minutes` and `until_restart` go beyond
+Home Assistant's five minutes: Tacktab refreshes the chat session through Home
+Assistant's own helper until the retention has passed, and `until_restart` never
+lets go until Home Assistant restarts. This is separate from follow-up
+listening after a question, which the native apps control. Realtime
+conversations keep their own bounded memory.
 
 ## Timer events
 

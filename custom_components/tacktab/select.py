@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .voice_bridge import VoiceBridgeError, VoiceDevice, async_get_bridge
+from .voice_conversation import TacktabConversationMemorySelect
 
 PREFERRED = "preferred"
 UNAVAILABLE = "unavailable"
@@ -26,7 +27,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddCon
     # One finished-speaking choice per tablet: HA's Assist satellite base class
     # reads it to decide how much silence ends a spoken command.
     device.vad_select = TacktabFinishedSpeakingSelect(device)  # type: ignore[attr-defined]
-    add([*entities, device.vad_select])  # type: ignore[attr-defined]
+    device.memory_select = TacktabConversationMemorySelect(device)  # type: ignore[attr-defined]
+    add([*entities, device.vad_select, device.memory_select])  # type: ignore[attr-defined]
 
 
 async def async_reconcile_slots(device: VoiceDevice, slots) -> None:
@@ -48,7 +50,6 @@ class TacktabFinishedSpeakingSelect(VadSensitivitySelect):
     """HA's standard `default`/`relaxed`/`aggressive` end-of-speech choice for a tablet."""
 
     _attr_has_entity_name = True
-    _attr_name = "Finished speaking"
 
     def __init__(self, device: VoiceDevice) -> None:
         self.device = device

@@ -59,6 +59,22 @@
     "number": { "brightness": { "name": "Brightness" } },
     "button": { "reload": { "name": "Reload page" } },
     "text": { "page": { "name": "Page" } },
+    "select": {
+      "vad_sensitivity": {
+        "name": "Finished speaking",
+        "state": { "default": "Default", "relaxed": "Relaxed", "aggressive": "Aggressive" }
+      },
+      "conversation_memory": {
+        "name": "Conversation memory",
+        "state": {
+          "isolated": "Isolated (new conversation each time)",
+          "1_minute": "1 minute",
+          "5_minutes": "5 minutes",
+          "15_minutes": "15 minutes",
+          "until_restart": "Until restart"
+        }
+      }
+    },
     "sensor": {
       "version": { "name": "App version" },
       "voice_turn": { "name": "Voice turn" }

@@ -17,6 +17,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
+from .voice_conversation import memory_option_for
 from .voice_migration_refs import OLD_TIMER_EVENT, ReferenceDiscovery, async_discover_references, scan_references
 
 __all__ = ["OLD_DOMAIN", "OLD_TIMER_EVENT", "NEW_TIMER_EVENT", "async_build_plan", "build_plan", "scan_references"]
@@ -42,6 +43,8 @@ _ATTRIBUTES = {
 }
 _ENGINES = {"microwakeword": "microwakeword", "openwakeword": "openwakeword", "vswakeword": "vswakeword"}
 _VAD = {"default", "relaxed", "aggressive"}
+# Upstream's built-in microWakeWord ids that Tacktab spells differently.
+WAKE_WORD_ALIASES = {"ok_nabu": "okay_nabu"}
 
 
 @dataclass(slots=True)
@@ -72,6 +75,12 @@ def _is_preferred(value: str | None) -> bool | None:
     return None if value is None else value.casefold() == "preferred"
 
 
+def _wake_id(value: Any) -> str | None:
+    """Upstream's model id as Tacktab spells it (`ok_nabu` -> `okay_nabu`)."""
+    text = _text(value)
+    return None if text is None else WAKE_WORD_ALIASES.get(text, text)
+
+
 def normalize_wake_detection(value: Any) -> dict[str, Any]:
     """Map upstream's detection labels to mode (local/server/disabled) and engine."""
     label = _text(value)
@@ -92,17 +101,23 @@ def normalize_wake_detection(value: Any) -> dict[str, Any]:
 
 
 def normalize_conversation(value: Any) -> dict[str, Any]:
-    """`persistent`, `isolated` or `<n>_minutes|hour(s)`, in any case/spacing."""
+    """`persistent`, `isolated` or `<n>_minutes|hour(s)`, in any case/spacing.
+
+    Also names the Tacktab "Conversation memory" option that keeps context for at
+    least as long (`conversation_memory`) and whether that rounded the duration up.
+    """
     text = _text(value)
-    if text is None:
-        return {"conversation": None, "conversation_seconds": None}
-    key = re.sub(r"[\s-]+", "_", text.casefold())
-    if key in {"persistent", "isolated"}:
-        return {"conversation": key, "conversation_seconds": None}
-    match = re.fullmatch(r"(\d+)_(minute|hour)s?", key)
-    if match:
-        return {"conversation": "timed", "conversation_seconds": int(match[1]) * (60 if match[2] == "minute" else 3600)}
-    return {"conversation": None, "conversation_seconds": None}
+    mode: str | None = None
+    seconds: int | None = None
+    if text is not None:
+        key = re.sub(r"[\s-]+", "_", text.casefold())
+        match = re.fullmatch(r"(\d+)_(minute|hour)s?", key)
+        if key in {"persistent", "isolated"}:
+            mode = key
+        elif match:
+            mode, seconds = "timed", int(match[1]) * (60 if match[2] == "minute" else 3600)
+    memory, rounded = memory_option_for(mode, seconds)
+    return {"conversation": mode, "conversation_seconds": seconds, "conversation_memory": memory, "conversation_memory_rounded": rounded}
 
 
 def normalize_settings(raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -113,7 +128,7 @@ def normalize_settings(raw: Mapping[str, Any]) -> dict[str, Any]:
     settings: dict[str, Any] = {
         "assistant": assistant, "assistant_preferred": _is_preferred(assistant), "assistant_pipeline_id": None,
         "assistant_2": _text(raw.get("assistant_2")),
-        "wake_word": _text(raw.get("wake_word")), "wake_word_2": _text(raw.get("wake_word_2")),
+        "wake_word": _wake_id(raw.get("wake_word")), "wake_word_source": _text(raw.get("wake_word")), "wake_word_2": _text(raw.get("wake_word_2")),
         "wake_sensitivity": _text(raw.get("wake_sensitivity")),
         "finished_speaking": vad if vad in _VAD else None,
         "timer_muted": _flag(raw.get("timer_muted")),
@@ -128,6 +143,8 @@ def plan_warnings(settings: Mapping[str, Any]) -> list[dict[str, str]]:
         warnings.append({"code": "unsupported_wake_engine", "detail": str(settings.get("wake_detection_label"))})
     if settings.get("wake_word_2") or settings.get("assistant_2"):
         warnings.append({"code": "second_assistant_not_carried", "detail": "Second wake word and assistant are not migrated"})
+    if settings.get("conversation_memory_rounded"):
+        warnings.append({"code": "conversation_memory_rounded", "detail": str(settings.get("conversation_memory"))})
     warnings.append({"code": "appearance_not_mapped", "detail": "Voice Satellite skins have no native mapping"})
     return warnings
 

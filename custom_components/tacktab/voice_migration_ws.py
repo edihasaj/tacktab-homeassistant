@@ -95,6 +95,10 @@ async def _apply_home_assistant_side(hass: HomeAssistant, device: VoiceDevice, s
     vad = settings.get("finished_speaking") if "conversation" in carry else None
     if vad and vad_select is None:
         raise VoiceBridgeError("disconnected", "Tacktab finished-speaking select is unavailable")
+    memory = settings.get("conversation_memory") if "conversation" in carry else None
+    memory_select = getattr(device, "memory_select", None)
+    if memory and memory_select is None:
+        raise VoiceBridgeError("disconnected", "Tacktab conversation-memory select is unavailable")
     applied: list[str] = []
     if pipeline is not None:
         pipeline_select.async_select_pipeline_id(pipeline[0])
@@ -102,4 +106,7 @@ async def _apply_home_assistant_side(hass: HomeAssistant, device: VoiceDevice, s
     if vad:
         await vad_select.async_select_option(vad)
         applied.append("finished_speaking")
+    if memory:
+        await memory_select.async_select_option(memory)
+        applied.append("conversation_memory")
     return applied

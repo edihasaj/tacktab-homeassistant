@@ -21,6 +21,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .voice_bridge import VoiceBridgeError, VoiceDevice, VoiceRun
+from .voice_conversation import ConversationMemory, retention_seconds
 from .voice_models import SlotConfig
 
 
@@ -56,6 +57,9 @@ async def _start_run(device: VoiceDevice, run: VoiceRun, msg: dict[str, Any]) ->
     satellite: TacktabAssistSatellite = device.satellites[run.slot_id]  # type: ignore[attr-defined]
     session = device.session
     assert session is not None and run.context_message is not None
+    memory = satellite.conversation_memory
+    if memory is not None:
+        memory.before_run(satellite)  # a new conversation when the retention ran out
     owner = f"assist:{run.run_id}"
     device.async_set_activity(owner, "assist", run.slot_id)
     try:
@@ -68,6 +72,8 @@ async def _start_run(device: VoiceDevice, run: VoiceRun, msg: dict[str, Any]) ->
     except TimeoutError:
         session.emit({"event": "pipeline", "run_id": run.run_id, "slot_id": run.slot_id, "core": {"type": "error", "timestamp": "", "data": {"code": "timeout"}}})
     finally:
+        if memory is not None:
+            memory.after_run(satellite)
         device.async_clear_activity(owner)
         if session.runs.get(run.run_id) is run:
             session.runs.pop(run.run_id, None)
@@ -89,10 +95,20 @@ class TacktabAssistSatellite(AssistSatelliteEntity):
         self._attr_unique_id = f"voice:{device.install_id}:{slot.slot_id}"
         self._attr_translation_key = "assist_satellite"
         self._response_tasks: dict[str, tuple[Any, asyncio.Task[None]]] = {}
+        self.conversation_memory: ConversationMemory | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
         return {"identifiers": {(DOMAIN, f"voice:{self.device.install_id}")}, "name": self.device.name, "manufacturer": "Applifyer", "model": "Tacktab"}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.conversation_memory = ConversationMemory(self.hass, lambda: retention_seconds(self.device))
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self.conversation_memory is not None:
+            self.conversation_memory.cancel()
+        await super().async_will_remove_from_hass()
 
     @property
     def pipeline_entity_id(self) -> str | None:

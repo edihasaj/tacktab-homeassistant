@@ -15,6 +15,7 @@ from custom_components.tacktab.voice_migration import (
 from custom_components.tacktab.voice_migration_refs import _read_yaml
 
 ENTRY = "01JABC"
+UPSTREAM_BUILTIN_WAKE_WORD = "ok_nabu"  # the id upstream really registers, not Tacktab's "okay_nabu"
 
 
 def _old_satellite(hass: HomeAssistant, *, pipeline: str = "Preferred", session: str = "Isolated", **extra: str) -> None:
@@ -28,7 +29,7 @@ def _old_satellite(hass: HomeAssistant, *, pipeline: str = "Preferred", session:
         "select.kitchen_finished": ("select", f"{ENTRY}-vad_sensitivity", "aggressive"),
         "select.kitchen_session": ("select", f"{ENTRY}_session_duration", session),
         "select.kitchen_detect": ("select", f"{ENTRY}_wake_word_detection", extra.get("detection", "On Device (microWakeWord)")),
-        "select.kitchen_wake": ("select", f"{ENTRY}_wake_word_model", "hey_jarvis"),
+        "select.kitchen_wake": ("select", f"{ENTRY}_wake_word_model", extra.get("wake", "hey_jarvis")),
         "switch.kitchen_mute_timers": ("switch", f"{ENTRY}_mute_timers", "on"),
     }
     for entity_id, (domain, unique_id, value) in states.items():
@@ -137,9 +138,28 @@ def test_wake_detection_labels(label: str, mode: str | None, engine: str | None,
     ("5_minutes", "timed", 300), ("1_hour", "timed", 3600), ("6_hours", "timed", 21600), (None, None, None), ("what", None, None),
 ])
 def test_conversation_values(value: str | None, mode: str | None, seconds: int | None) -> None:
-    assert normalize_conversation(value) == {"conversation": mode, "conversation_seconds": seconds}
+    result = normalize_conversation(value)
+    assert (result["conversation"], result["conversation_seconds"]) == (mode, seconds)
 
 
 def test_unknown_source_values_stay_none() -> None:
     settings = normalize_settings({"assistant": "unknown", "finished_speaking": "Moderately sensitive", "timer_muted": "unavailable"})
     assert settings["assistant"] is None and settings["finished_speaking"] is None and settings["timer_muted"] is None
+
+
+async def test_upstream_ok_nabu_becomes_tacktabs_okay_nabu(hass: HomeAssistant) -> None:
+    _old_satellite(hass, wake=UPSTREAM_BUILTIN_WAKE_WORD)
+    with patch("homeassistant.components.assist_pipeline.async_get_pipelines", return_value=[]):
+        settings = (await async_build_plan(hass))["candidates"][0]["settings"]
+    assert settings["wake_word"] == "okay_nabu" and settings["wake_word_source"] == "ok_nabu"
+    assert normalize_settings({"wake_word": "hey_jarvis"})["wake_word"] == "hey_jarvis"
+
+
+@pytest.mark.parametrize(("value", "memory", "rounded"), [
+    ("Isolated", "isolated", False), ("persistent", "until_restart", False),
+    ("5_minutes", "5_minutes", False), ("10_minutes", "15_minutes", True), ("15_minutes", "15_minutes", False),
+    ("30_minutes", "until_restart", True), ("6_hours", "until_restart", True), (None, None, False),
+])
+def test_session_duration_maps_to_conversation_memory(value: str | None, memory: str | None, rounded: bool) -> None:
+    result = normalize_conversation(value)
+    assert (result["conversation_memory"], result["conversation_memory_rounded"]) == (memory, rounded)
