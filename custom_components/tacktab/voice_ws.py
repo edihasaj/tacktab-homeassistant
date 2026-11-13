@@ -16,7 +16,8 @@ from .voice_setup import async_ensure_voice_entry
 from .const import REALTIME_ENABLED
 
 _COMMANDS = (
-    "connect", "configure", "status", "snapshot", "claim", "run", "audio_end", "cancel", "cancel_output", "ack", "timer_action"
+    "connect", "configure", "status", "snapshot", "claim", "run", "audio_end", "cancel", "cancel_output", "ack", "timer_action",
+    "voice_profile_get", "voice_profile_update",
 )
 _REALTIME_COMMANDS = (
     "configure_provider", "configure_slot", "catalog", "start", "audio", "audio_end", "playback", "interrupt", "stop"
@@ -36,6 +37,9 @@ def async_register_voice_websocket_api(hass: HomeAssistant) -> None:
         )
     websocket_api.async_register_command(hass, PLAN_COMMAND, handle_migration_plan, schema=vol.Schema({}, extra=vol.ALLOW_EXTRA))
     websocket_api.async_register_command(hass, APPLY_COMMAND, handle_migration_apply, schema=vol.Schema({}, extra=vol.ALLOW_EXTRA))
+    from .voice_profile_ws import async_register_voice_profile_api
+
+    async_register_voice_profile_api(hass)
     if REALTIME_ENABLED:
         for command in _REALTIME_COMMANDS:
             websocket_api.async_register_command(

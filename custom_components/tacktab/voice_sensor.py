@@ -18,8 +18,11 @@ STATE_IDLE = "idle"
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddConfigEntryEntitiesCallback) -> None:
     """Add one voice-turn sensor per tablet device."""
+    from .voice_profile_entities import async_build_fleet_entities
+
     device: VoiceDevice = entry.runtime_data
-    add([TacktabVoiceTurnSensor(device)])
+    _switches, fleet_sensors = await async_build_fleet_entities(hass, entry)
+    add([TacktabVoiceTurnSensor(device), *fleet_sensors])
 
 
 class TacktabVoiceTurnSensor(SensorEntity):
