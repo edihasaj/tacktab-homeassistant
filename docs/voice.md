@@ -297,3 +297,7 @@ Administrators only (a non-admin gets `unauthorized`):
   by an older layout is repaired on load; one from a newer major or minor version
   makes the profile read-only (writes answer `profile_read_only`) instead of being
   overwritten, so unknown groups and metadata survive a downgrade.
+* A file that is not valid JSON is handled by Home Assistant's own storage
+  layer: it renames the file to `tacktab.voice_profile.corrupt.<timestamp>`,
+  raises a repair issue and starts with an empty, writable profile. The
+  original bytes stay in the renamed file for manual recovery.
