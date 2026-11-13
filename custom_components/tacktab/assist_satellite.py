@@ -175,6 +175,11 @@ class TacktabAssistSatellite(AssistSatelliteEntity):
             return
         core = {"type": event.type, "timestamp": event.timestamp, "data": event.data}
         session.emit({"event": "pipeline", "run_id": run.run_id, "slot_id": self.slot.slot_id, "core": core})
+        if event.type == "intent-end" and session.protocol >= 3:
+            from .voice_results import result_from_intent
+
+            if result := result_from_intent(event.data.get("intent_output") if isinstance(event.data, dict) else None):
+                session.emit({"event": "conversation_result", "run_id": run.run_id, "slot_id": self.slot.slot_id, "result": result})
         if event.type == "tts-end" and event.data:
             output = event.data.get("tts_output", {})
             media_id = output.get("url")
