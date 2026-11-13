@@ -62,6 +62,14 @@ question actions, authoritative timers and per-slot assistant selection. It
 can observe compatible HA speakers through protocol 2 while keeping protocol 1
 local playback compatible. The Pro HTTP remote API remains separate.
 
+Each paired tablet also gets a **Voice turn** sensor (`idle`, `realtime` or
+`assist`, with the tablet's device, name and area as attributes), so
+automations can tell which tablet is talking even while its satellite entity
+stays idle. Every timer fires a `tacktab_voice_timer` Home Assistant event, and
+realtime conversations start with the tablet's name and area so unnamed
+requests use the right room. See [docs/voice.md](docs/voice.md) and
+[docs/realtime.md](docs/realtime.md) for fields and examples.
+
 ## Set up Tacktab
 
 1. In Tacktab, press and hold the top-left corner for 3 seconds to open Settings.

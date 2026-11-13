@@ -472,6 +472,48 @@ class VoiceDevice:
         self.media_lease: tuple[str, str] | None = None
         self.config_lock = asyncio.Lock()
         self.start_run: Callable[[VoiceRun, dict[str, Any]], Awaitable[None]] | None = None
+        # Owners that currently hold the tablet's attention, newest per owner.
+        # A voice sensor derives "which tablet is talking" from this and never
+        # from a Home Assistant entity state that stays idle during realtime.
+        self.activities: dict[str, dict[str, str]] = {}
+        self.activity_listeners: set[Callable[[], None]] = set()
+
+    @property
+    def active_activity(self) -> dict[str, str] | None:
+        """Return the most significant current turn, if any."""
+        for kind in ("realtime", "assist"):
+            for activity in self.activities.values():
+                if activity.get("kind") == kind:
+                    return activity
+        return None
+
+    @callback
+    def async_set_activity(self, owner: str, kind: str, slot_id: str) -> None:
+        """Mark one owner as talking on this tablet."""
+        self.activities[owner] = {"kind": kind, "slot_id": slot_id}
+        self._notify_activity()
+
+    @callback
+    def async_clear_activity(self, owner: str) -> None:
+        """Release one owner's claim without affecting any other owner."""
+        if self.activities.pop(owner, None) is not None:
+            self._notify_activity()
+
+    @callback
+    def _notify_activity(self) -> None:
+        for listener in tuple(self.activity_listeners):
+            listener()
+
+    @callback
+    def async_add_activity_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Subscribe an entity to turn start/end changes."""
+        self.activity_listeners.add(listener)
+
+        @callback
+        def remove() -> None:
+            self.activity_listeners.discard(listener)
+
+        return remove
 
     def snapshot(self) -> dict[str, Any]:
         timers, ringing = getattr(self, "timer_adapter", None).snapshot() if hasattr(self, "timer_adapter") else ([], [])

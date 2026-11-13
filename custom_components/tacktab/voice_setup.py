@@ -136,7 +136,7 @@ async def async_setup_voice_entry(hass: HomeAssistant, entry: ConfigEntry) -> bo
     entry.async_on_unload(adapter.close)
     from homeassistant.const import Platform
 
-    await hass.config_entries.async_forward_entry_setups(entry, [Platform.SELECT, Platform.ASSIST_SATELLITE])
+    await hass.config_entries.async_forward_entry_setups(entry, [Platform.SELECT, Platform.SENSOR, Platform.ASSIST_SATELLITE])
     return True
 
 
@@ -149,4 +149,4 @@ async def async_unload_voice_entry(hass: HomeAssistant, entry: ConfigEntry) -> b
     device: VoiceDevice = entry.runtime_data
     if device.session is not None:
         await device.session.close("unloaded")
-    return await hass.config_entries.async_unload_platforms(entry, [Platform.SELECT, Platform.ASSIST_SATELLITE])
+    return await hass.config_entries.async_unload_platforms(entry, [Platform.SELECT, Platform.SENSOR, Platform.ASSIST_SATELLITE])
