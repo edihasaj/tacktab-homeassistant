@@ -44,7 +44,14 @@ MAX_DEPTH = 3
 MAX_CONTAINER_ITEMS = 32
 
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-_SECRET_RE = re.compile(r"(token|secret|password|passwd|credential|api_?key|private_?key)")
+# Names that are never shared, at any depth: credentials, routing and per-device
+# hardware or identity. Matched on word boundaries so ordinary names survive.
+_SECRET_RE = re.compile(
+    r"(token|secret|password|passwd|credential|api_?key|private_?key"
+    r"|(^|_)(pipelines?|outputs?|media_players?|arbitration|areas?)(_|$)"
+    r"|mic(rophone)?_?gain|input_gain|device_name)",
+    re.IGNORECASE,
+)
 _CHIME_EVENTS = ("wake", "done", "error", "timer", "announcement")
 
 # Kiosk Satellite keeps hardware-dependent settings per device; so do we. The
@@ -57,6 +64,11 @@ EXCLUDED_KEYS = frozenset({
     "output_target", "output_target_2", "media_player_entity_id", "media_player_entity_id_2",
     "enabled", "muted", "hands_free", "announcements_enabled", "background_listening",
 })
+
+
+# Inside a value, generic names ("name", "enabled", "muted", ...) are ordinary
+# data, so only the identity and routing names are excluded there.
+NESTED_EXCLUDED_KEYS = EXCLUDED_KEYS - {"name", "enabled", "muted", "hands_free", "announcements_enabled", "background_listening"}
 
 
 class ProfileError(VoiceProtocolError):
@@ -174,7 +186,28 @@ KNOWN_KEYS: dict[str, dict[str, Validator]] = {
 
 def is_excluded(key: str) -> bool:
     """True for per-device, identity and credential keys."""
-    return key in EXCLUDED_KEYS or _SECRET_RE.search(key) is not None
+    return key.lower() in EXCLUDED_KEYS or _SECRET_RE.search(key) is not None
+
+
+def strip_excluded(value: Any, path: str, dropped: list[str]) -> Any:
+    """Return ``value`` without excluded or secret-like keys at any depth.
+
+    Walks dicts and the dicts inside lists. Each removed entry is recorded in
+    ``dropped`` as its path, e.g. ``voice.future_provider.api_key`` or
+    ``voice.future[2].token``. Generic names such as ``name`` are excluded only at
+    the top of a group, where they would be a device field, not inside a value.
+    """
+    if type(value) is dict:
+        kept: dict[Any, Any] = {}
+        for key, item in value.items():
+            if type(key) is str and (key.lower() in NESTED_EXCLUDED_KEYS or _SECRET_RE.search(key) is not None):
+                dropped.append(f"{path}.{key}")
+                continue
+            kept[key] = strip_excluded(item, f"{path}.{key}", dropped)
+        return kept
+    if type(value) is list:
+        return [strip_excluded(item, f"{path}[{index}]", dropped) for index, item in enumerate(value)]
+    return value
 
 
 def _json_value(value: Any, depth: int = 0) -> None:
@@ -243,6 +276,8 @@ def sanitize_groups(groups: Any, *, allow_empty: bool = False) -> tuple[dict[str
             if is_excluded(key):
                 dropped.append(f"{group}.{key}")
                 continue
+            if key not in KNOWN_KEYS[group]:
+                value = strip_excluded(value, f"{group}.{key}", dropped)
             check_known_or_unknown(group, key, value)
             kept[key] = deepcopy(value)
         clean[group] = kept
@@ -296,6 +331,8 @@ def normalize_document(raw: Any) -> dict[str, Any]:
             for key, value in values.items():
                 try:
                     if type(key) is str and not is_excluded(key):
+                        if key not in KNOWN_KEYS[group]:
+                            value = strip_excluded(value, f"{group}.{key}", [])
                         check_known_or_unknown(group, key, value)
                         doc["groups"][group][key] = deepcopy(value)
                 except ProfileError:

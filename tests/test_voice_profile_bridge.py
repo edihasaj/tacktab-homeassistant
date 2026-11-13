@@ -419,3 +419,20 @@ async def test_an_administrator_edits_the_profile_with_the_same_revision_rules(h
     assert got["groups"]["voice"] == {"wake_sensitivity": 0.5}
     assert {d["install_id"] for d in got["devices"]} == {A, B}
     assert next(d for d in got["devices"] if d["install_id"] == B)["negotiated"] is True
+
+
+async def test_nested_secrets_in_unknown_keys_are_dropped_with_paths_and_never_broadcast(hass, fleet) -> None:
+    entries, tablets = fleet
+    await _follow(hass, entries[A])
+    await _follow(hass, entries[B])
+    for tablet in tablets.values():
+        await tablet.connect()
+    response = await tablets[A].push(0, {"voice": {
+        "future_provider": {"api_key": "x", "arbitration_offset_db": 9, "label": "keep", "list": [{"token": "t", "ok": 1}]},
+    }})
+    assert response["result"]["dropped"] == [
+        "voice.future_provider.api_key", "voice.future_provider.arbitration_offset_db", "voice.future_provider.list[0].token",
+    ]
+    event = await tablets[B].event()
+    assert event["groups"]["voice"] == {"future_provider": {"label": "keep", "list": [{"ok": 1}]}}
+    assert "api_key" not in str((await tablets[B].get())["result"]["groups"])

@@ -212,3 +212,66 @@ def test_profile_commands_have_a_strict_shape() -> None:
     ):
         with pytest.raises(VoiceProtocolError):
             validate_message(bad)
+
+
+# -- recursive exclusion ------------------------------------------------------
+NESTED = {
+    "future_provider": {
+        "api_key": "x", "arbitration_offset_db": 9, "label": "keep",
+        "inner": {"Token": "no", "access_token": "no", "keep_me": [1, 2], "deep": {"password": "p", "ok": True}},
+        "devices": [{"device_name": "Kitchen", "area": "k", "mic_gain": 2, "name": "fine", "enabled": True}],
+    },
+    "future_list": [1, {"password": "p", "ok": True}],
+}
+
+
+def test_excluded_and_secret_keys_are_stripped_at_any_depth_with_paths() -> None:
+    clean, dropped = sanitize_groups({"voice": dict(NESTED)})
+    assert clean["voice"]["future_provider"] == {
+        "label": "keep",
+        "inner": {"keep_me": [1, 2], "deep": {"ok": True}},
+        "devices": [{"name": "fine", "enabled": True}],
+    }
+    assert clean["voice"]["future_list"] == [1, {"ok": True}]
+    assert dropped == sorted([
+        "voice.future_provider.api_key",
+        "voice.future_provider.arbitration_offset_db",
+        "voice.future_provider.inner.Token",
+        "voice.future_provider.inner.access_token",
+        "voice.future_provider.inner.deep.password",
+        "voice.future_list[1].password",
+        "voice.future_provider.devices[0].device_name",
+        "voice.future_provider.devices[0].area",
+        "voice.future_provider.devices[0].mic_gain",
+    ])
+
+
+@pytest.mark.parametrize("key", [
+    "client_secret", "refresh_token", "db_password", "service_credentials", "pipelines", "pipeline_id",
+    "outputs", "output_target", "media_player_entity_id", "arbitration_offset_db", "mic_gain",
+    "microphone_gain", "device_name", "area", "area_id",
+])
+def test_each_sensitive_family_is_stripped_from_nested_values(key: str) -> None:
+    clean, dropped = sanitize_groups({"timers": {"future": [{key: "x", "kept": 1}]}})
+    assert clean["timers"]["future"] == [{"kept": 1}]
+    assert dropped == [f"timers.future[0].{key}"]
+
+
+def test_stripped_nested_values_are_never_stored_or_viewed() -> None:
+    clean, _ = sanitize_groups({"voice": dict(NESTED)})
+    doc, _ = apply_update(empty_document(), clean, {}, WRITER, "now")
+    text = str(view(doc))
+    for needle in ("api_key", "arbitration", "access_token", "password", "device_name", "mic_gain"):
+        assert needle not in text
+
+
+def test_stored_documents_are_scrubbed_recursively_on_load() -> None:
+    doc = normalize_document({"revision": 2, "groups": {"voice": dict(NESTED)}})
+    assert "api_key" not in str(doc) and "arbitration" not in str(doc) and "password" not in str(doc)
+    assert doc["groups"]["voice"]["future_provider"]["label"] == "keep"
+
+
+def test_no_known_profile_key_is_itself_excluded() -> None:
+    from custom_components.tacktab.voice_profile import KNOWN_KEYS, is_excluded
+
+    assert [(g, k) for g, keys in KNOWN_KEYS.items() for k in keys if is_excluded(k)] == []
