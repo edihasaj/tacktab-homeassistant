@@ -70,6 +70,18 @@ realtime conversations start with the tablet's name and area so unnamed
 requests use the right room. See [docs/voice.md](docs/voice.md) and
 [docs/realtime.md](docs/realtime.md) for fields and examples.
 
+### Fleet profile
+
+With several tablets, keep their voice settings in step. Home Assistant stores
+one **fleet voice profile** (wake word and sensitivity, appearance and skins,
+conversation display, timers, chimes). On each tablet's device, turn on
+**Follow fleet voice profile** and pick which groups to follow; a followed
+tablet receives changes as they are made, and any opted-in tablet can **push**
+its own settings to the fleet from the app. Conflicting edits are refused with a
+revision check. Per-device settings (arbitration offset, microphone gain, name,
+area, pipelines, outputs, credentials) are never shared. Requires an app that
+supports it; older apps are unaffected. See [docs/voice.md](docs/voice.md#fleet-voice-profile).
+
 ## Set up Tacktab
 
 1. In Tacktab, press and hold the top-left corner for 3 seconds to open Settings.
