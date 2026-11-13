@@ -79,7 +79,8 @@ say, and the clients then leave their own preference alone.
 | --- | --- | --- |
 | `assistant`, `assistant_preferred`, `assistant_pipeline_id` | string, bool, string | Pipeline select (`preferred` or a name); the id is the resolved stable pipeline. |
 | `wake_detection` | `local` / `server` / `disabled` | Wake word detection select. |
-| `wake_engine`, `wake_engine_supported` | `microwakeword` / `openwakeword` / `vswakeword`, bool | Only microWakeWord is carried; other engines are reported in `warnings`. |
+| `wake_engine`, `wake_engine_supported` | `micro_wake_word` / `open_wake_word` / `vs_wake_word`, bool | microWakeWord and openWakeWord are carried; only vsWakeWord (no native counterpart) is reported in `warnings`. |
+| `wake_sensitivity`, `wake_sensitivity_label` | float 0–1, string | Wake word sensitivity select: Slightly 0.25, Moderately 0.5, Very 0.75, one scale for every engine (upstream's per-engine scales differ). `null` when unknown. |
 | `wake_word`, `wake_word_source` | string | Wake word model select. Upstream ids are mapped to Tacktab's (`ok_nabu` becomes `okay_nabu`); `wake_word_source` keeps the original. |
 | `finished_speaking` | `default` / `relaxed` / `aggressive` | Finished-speaking (VAD) select. |
 | `conversation`, `conversation_seconds`, `conversation_memory`, `conversation_memory_rounded` | `persistent` / `timed` / `isolated`, int, option, bool | Session duration select (`5_minutes`, `isolated`, ...). `conversation_memory` names the Tacktab option that keeps context at least as long; `conversation_memory_rounded` is true when that is longer than the original. |

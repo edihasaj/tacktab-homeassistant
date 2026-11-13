@@ -41,7 +41,14 @@ _ATTRIBUTES = {
     "wake_detection": "wake_word_detection", "wake_sensitivity": "wake_word_sensitivity",
     "conversation": "session_duration", "timer_muted": "mute_timers", "finished_speaking": "vad_sensitivity",
 }
-_ENGINES = {"microwakeword": "microwakeword", "openwakeword": "openwakeword", "vswakeword": "vswakeword"}
+# Upstream engine label token -> Tacktab's engine id (the same spelling the fleet voice profile uses).
+_ENGINES = {"microwakeword": "micro_wake_word", "openwakeword": "open_wake_word", "vswakeword": "vs_wake_word"}
+# Tacktab can run these on a tablet; vsWakeWord has no native counterpart.
+SUPPORTED_ENGINES = {"micro_wake_word", "open_wake_word"}
+# One rule for every engine: upstream's three labels on Tacktab's 0-1 sensitivity slider (0.5 is "as picked").
+# Upstream scales differ per engine (a margin multiplier for microWakeWord, +/-0.10 probability for openWakeWord),
+# so they are not copied; fine-tune on the tablet covers the rest.
+WAKE_SENSITIVITY = {"slightly sensitive": 0.25, "moderately sensitive": 0.5, "very sensitive": 0.75}
 _VAD = {"default", "relaxed", "aggressive"}
 # Upstream's built-in microWakeWord ids that Tacktab spells differently.
 WAKE_WORD_ALIASES = {"ok_nabu": "okay_nabu"}
@@ -92,12 +99,19 @@ def normalize_wake_detection(value: Any) -> dict[str, Any]:
     elif key == "homeassistant":
         mode, engine = "server", None
     elif key.startswith("ondevice"):
-        engine = next((name for token, name in _ENGINES.items() if token in key), "microwakeword" if key == "ondevice" else None)
+        engine = next((name for token, name in _ENGINES.items() if token in key), "micro_wake_word" if key == "ondevice" else None)
         mode = "local"
     else:
         mode, engine = None, None
-    supported = None if mode is None else engine in (None, "microwakeword")
+    supported = None if mode is None else engine is None or engine in SUPPORTED_ENGINES
     return {"wake_detection": mode, "wake_engine": engine, "wake_engine_supported": supported, "wake_detection_label": label}
+
+
+def normalize_wake_sensitivity(value: Any) -> dict[str, Any]:
+    """`wake_sensitivity` is Tacktab's 0-1 value (None when unknown); the label is kept for display."""
+    label = _text(value)
+    level = WAKE_SENSITIVITY.get(label.casefold()) if label else None
+    return {"wake_sensitivity": level, "wake_sensitivity_label": label if level is not None else None}
 
 
 def normalize_conversation(value: Any) -> dict[str, Any]:
@@ -129,11 +143,10 @@ def normalize_settings(raw: Mapping[str, Any]) -> dict[str, Any]:
         "assistant": assistant, "assistant_preferred": _is_preferred(assistant), "assistant_pipeline_id": None,
         "assistant_2": _text(raw.get("assistant_2")),
         "wake_word": _wake_id(raw.get("wake_word")), "wake_word_source": _text(raw.get("wake_word")), "wake_word_2": _text(raw.get("wake_word_2")),
-        "wake_sensitivity": _text(raw.get("wake_sensitivity")),
         "finished_speaking": vad if vad in _VAD else None,
         "timer_muted": _flag(raw.get("timer_muted")),
     }
-    return settings | normalize_wake_detection(raw.get("wake_detection")) | normalize_conversation(raw.get("conversation"))
+    return settings | normalize_wake_sensitivity(raw.get("wake_sensitivity")) | normalize_wake_detection(raw.get("wake_detection")) | normalize_conversation(raw.get("conversation"))
 
 
 def plan_warnings(settings: Mapping[str, Any]) -> list[dict[str, str]]:

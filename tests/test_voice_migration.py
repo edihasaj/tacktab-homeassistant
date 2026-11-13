@@ -30,6 +30,7 @@ def _old_satellite(hass: HomeAssistant, *, pipeline: str = "Preferred", session:
         "select.kitchen_session": ("select", f"{ENTRY}_session_duration", session),
         "select.kitchen_detect": ("select", f"{ENTRY}_wake_word_detection", extra.get("detection", "On Device (microWakeWord)")),
         "select.kitchen_wake": ("select", f"{ENTRY}_wake_word_model", extra.get("wake", "hey_jarvis")),
+        "select.kitchen_sensitivity": ("select", f"{ENTRY}_wake_word_sensitivity", extra.get("sensitivity", "Moderately sensitive")),
         "switch.kitchen_mute_timers": ("switch", f"{ENTRY}_mute_timers", "on"),
     }
     for entity_id, (domain, unique_id, value) in states.items():
@@ -52,7 +53,7 @@ async def test_async_plan_reads_upstream_children_into_one_typed_shape(hass: Hom
     assert settings["finished_speaking"] == "aggressive"
     assert settings["conversation"] == "isolated" and settings["conversation_seconds"] is None
     assert settings["wake_word"] == "hey_jarvis"
-    assert (settings["wake_detection"], settings["wake_engine"], settings["wake_engine_supported"]) == ("local", "microwakeword", True)
+    assert (settings["wake_detection"], settings["wake_engine"], settings["wake_engine_supported"]) == ("local", "micro_wake_word", True)
     assert settings["timer_muted"] is True
     assert "timer_visible" not in settings, "upstream has no such entity; unknown values must not be invented"
 
@@ -66,7 +67,7 @@ async def test_async_plan_resolves_a_named_assistant_to_its_stable_id(hass: Home
 
 
 async def test_async_plan_reports_unsupported_wake_engine_and_ignores_other_integrations(hass: HomeAssistant) -> None:
-    _old_satellite(hass, detection="On Device (openWakeWord)")
+    _old_satellite(hass, detection="On Device (vsWakeWord)")
     other = er.async_get(hass)
     other.async_get_or_create("assist_satellite", "esphome", "other", suggested_object_id="other")
     hass.states.async_set("assist_satellite.other", "idle")
@@ -74,7 +75,7 @@ async def test_async_plan_reports_unsupported_wake_engine_and_ignores_other_inte
         plan = await async_build_plan(hass)
     assert [item["entity_id"] for item in plan["candidates"]] == ["assist_satellite.kitchen"]
     assert plan["candidates"][0]["settings"]["wake_engine_supported"] is False
-    assert {"code": "unsupported_wake_engine", "detail": "On Device (openWakeWord)"} in plan["candidates"][0]["warnings"]
+    assert {"code": "unsupported_wake_engine", "detail": "On Device (vsWakeWord)"} in plan["candidates"][0]["warnings"]
 
 
 async def test_async_plan_finds_references_in_loaded_automations_and_marks_gaps(hass: HomeAssistant) -> None:
@@ -120,9 +121,10 @@ def test_reference_scan_never_changes_source_documents() -> None:
 
 
 @pytest.mark.parametrize(("label", "mode", "engine", "supported"), [
-    ("On Device (microWakeWord)", "local", "microwakeword", True),
-    ("On Device", "local", "microwakeword", True),
-    ("On Device (vsWakeWord)", "local", "vswakeword", False),
+    ("On Device (microWakeWord)", "local", "micro_wake_word", True),
+    ("On Device", "local", "micro_wake_word", True),
+    ("On Device (openWakeWord)", "local", "open_wake_word", True),
+    ("On Device (vsWakeWord)", "local", "vs_wake_word", False),
     ("Home Assistant", "server", None, True),
     ("Disabled", "disabled", None, True),
     ("surprise", None, None, None),
@@ -163,3 +165,22 @@ async def test_upstream_ok_nabu_becomes_tacktabs_okay_nabu(hass: HomeAssistant) 
 def test_session_duration_maps_to_conversation_memory(value: str | None, memory: str | None, rounded: bool) -> None:
     result = normalize_conversation(value)
     assert (result["conversation_memory"], result["conversation_memory_rounded"]) == (memory, rounded)
+
+
+async def test_open_wake_word_is_mapped_not_reported_as_unsupported(hass: HomeAssistant) -> None:
+    _old_satellite(hass, detection="On Device (openWakeWord)", wake="hey_jarvis", sensitivity="Very sensitive")
+    with patch("homeassistant.components.assist_pipeline.async_get_pipelines", return_value=[]):
+        candidate = (await async_build_plan(hass))["candidates"][0]
+    settings = candidate["settings"]
+    assert (settings["wake_detection"], settings["wake_engine"], settings["wake_engine_supported"]) == ("local", "open_wake_word", True)
+    assert settings["wake_word"] == "hey_jarvis" and settings["wake_sensitivity"] == 0.75
+    assert not any(item["code"] == "unsupported_wake_engine" for item in candidate["warnings"])
+
+
+@pytest.mark.parametrize(("label", "level"), [
+    ("Slightly sensitive", 0.25), ("Moderately sensitive", 0.5), ("very SENSITIVE", 0.75), ("loud", None), (None, None), ("unavailable", None),
+])
+def test_wake_sensitivity_maps_to_one_scale_for_every_engine(label: str | None, level: float | None) -> None:
+    for engine in ("On Device (microWakeWord)", "On Device (openWakeWord)"):
+        settings = normalize_settings({"wake_sensitivity": label, "wake_detection": engine})
+        assert settings["wake_sensitivity"] == level
