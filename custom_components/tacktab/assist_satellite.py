@@ -56,6 +56,8 @@ async def _start_run(device: VoiceDevice, run: VoiceRun, msg: dict[str, Any]) ->
     satellite: TacktabAssistSatellite = device.satellites[run.slot_id]  # type: ignore[attr-defined]
     session = device.session
     assert session is not None and run.context_message is not None
+    owner = f"assist:{run.run_id}"
+    device.async_set_activity(owner, "assist", run.slot_id)
     try:
         async with asyncio.timeout(300):
             await satellite.async_accept_pipeline_from_satellite(
@@ -66,6 +68,7 @@ async def _start_run(device: VoiceDevice, run: VoiceRun, msg: dict[str, Any]) ->
     except TimeoutError:
         session.emit({"event": "pipeline", "run_id": run.run_id, "slot_id": run.slot_id, "core": {"type": "error", "timestamp": "", "data": {"code": "timeout"}}})
     finally:
+        device.async_clear_activity(owner)
         if session.runs.get(run.run_id) is run:
             session.runs.pop(run.run_id, None)
         from .voice_bridge import async_get_bridge
