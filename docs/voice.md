@@ -40,20 +40,47 @@ empty timer snapshot and does not recreate timers.
 
 ## Migrate from Voice Satellite
 
-The authenticated `tacktab/voice/migration_plan` WebSocket command discovers
-the installed `voice_satellite` integration's Assist satellites and returns a
-read-only plan. Each candidate includes its assistant/pipeline, wake word and
-detection settings, conversation/final-speech settings when exposed, timer
-choices, and automation/script references to that satellite or
-`voice_satellite_timer`. YAML is only parsed for this inventory; it is never
-written, and the old Voice Satellite entry is never changed.
+Two WebSocket commands serve the native migration wizard. Both require an
+**administrator** user and a socket that has completed Tacktab pairing for the
+tablet (its `epoch` must match); a non-admin or unpaired socket gets
+`unauthorized` or `disconnected` and no data.
 
-`tacktab/voice/migration_apply` is scoped to the connected Tacktab tablet and
-only writes that tablet's primary Tacktab pipeline select. Native clients apply
-their selected voice, conversation and timer choices locally. Review every
-reported reference yourself: the replacement timer event is
-`tacktab_voice_timer`, but the bridge intentionally does not rewrite an
-automation or script. Voice Satellite skins currently have no native mapping.
+`tacktab/voice/migration_plan` reads the installed `voice_satellite`
+integration's Assist satellites and returns a read-only plan. Each candidate
+has one typed `settings` object; a value is `null` when the source did not
+say, and the clients then leave their own preference alone.
+
+| Key | Type | Source |
+| --- | --- | --- |
+| `assistant`, `assistant_preferred`, `assistant_pipeline_id` | string, bool, string | Pipeline select (`preferred` or a name); the id is the resolved stable pipeline. |
+| `wake_detection` | `local` / `server` / `disabled` | Wake word detection select. |
+| `wake_engine`, `wake_engine_supported` | `microwakeword` / `openwakeword` / `vswakeword`, bool | Only microWakeWord is carried; other engines are reported in `warnings`. |
+| `wake_word` | string | Wake word model select. |
+| `finished_speaking` | `default` / `relaxed` / `aggressive` | Finished-speaking (VAD) select. |
+| `conversation`, `conversation_seconds` | `persistent` / `timed` / `isolated`, int | Session duration select (`5_minutes`, `isolated`, ...). |
+| `timer_muted` | bool | Mute timers switch. |
+
+Skins, the second wake word/assistant and card-only timer display options have
+no mapping and are listed in `warnings`.
+
+References come from the automations and scripts Home Assistant has loaded
+(including `!include`, packages and UI-created items). Only when a component is
+not loaded is its YAML file read, keeping `!secret`/`!include` nodes. If any
+configuration could not be inspected, `references_complete` is `false` and
+`reference_warnings` says why, so an empty list is never presented as
+"nothing found". Nothing is written, and the old Voice Satellite entry is never
+changed.
+
+`tacktab/voice/migration_apply` writes only this tablet's Tacktab selects:
+`assistant` sets the primary pipeline to the resolved stable id (`Preferred`
+and `preferred` both mean HA's preferred pipeline), and `conversation` sets the
+new **Finished speaking** select, which HA's Assist satellite uses for how much
+silence ends a command. Inputs are validated first, so a busy tablet or an
+unknown pipeline changes nothing and returns an error. The result echoes
+`candidate_entity_id` and what was `applied`; the native client stores its own
+choices only after this success. Review every reported reference yourself: the
+replacement timer event is `tacktab_voice_timer`, but the bridge intentionally
+does not rewrite an automation or script.
 
 ## Timer events
 

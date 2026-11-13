@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from homeassistant.components.assist_pipeline import async_get_pipelines
+from homeassistant.components.assist_pipeline.select import VadSensitivitySelect
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -22,7 +23,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddCon
     entities = [TacktabPipelineSelect(device, slot.slot_id) for slot in device.slots]
     device.select_entities = {entity.slot_id: entity for entity in entities}  # type: ignore[attr-defined]
     device.add_select_entities = add  # type: ignore[attr-defined]
-    add(entities)
+    # One finished-speaking choice per tablet: HA's Assist satellite base class
+    # reads it to decide how much silence ends a spoken command.
+    device.vad_select = TacktabFinishedSpeakingSelect(device)  # type: ignore[attr-defined]
+    add([*entities, device.vad_select])  # type: ignore[attr-defined]
 
 
 async def async_reconcile_slots(device: VoiceDevice, slots) -> None:
@@ -38,6 +42,46 @@ async def async_reconcile_slots(device: VoiceDevice, slots) -> None:
     if additions:
         existing.update({entity.slot_id: entity for entity in additions})
         device.add_select_entities(additions)  # type: ignore[attr-defined]
+
+
+class TacktabFinishedSpeakingSelect(VadSensitivitySelect):
+    """HA's standard `default`/`relaxed`/`aggressive` end-of-speech choice for a tablet."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Finished speaking"
+
+    def __init__(self, device: VoiceDevice) -> None:
+        self.device = device
+        super().__init__(device.hass, f"voice:{device.install_id}")
+
+    @property
+    def device_info(self) -> dict:
+        return {"identifiers": {("tacktab", f"voice:{self.device.install_id}")}}
+
+    async def async_added_to_hass(self) -> None:
+        """Publish the real entity id so each satellite entity can point HA at it."""
+        await super().async_added_to_hass()
+        self.device.vad_entity_id = self.entity_id  # type: ignore[attr-defined]
+
+
+def resolve_pipeline_option(hass: HomeAssistant, option: str) -> tuple[str | None, str]:
+    """Return (stable pipeline id or None for preferred, normalized option name).
+
+    Accepts the select's own `preferred`, upstream's `Preferred`, a pipeline name
+    in any letter case, or a stable pipeline id.
+    """
+    if option.strip().casefold() == PREFERRED:
+        return None, PREFERRED
+    pipelines = list(async_get_pipelines(hass))
+    wanted = option.strip()
+    match = (
+        next((item for item in pipelines if item.name == wanted), None)
+        or next((item for item in pipelines if item.name.casefold() == wanted.casefold()), None)
+        or next((item for item in pipelines if item.id == wanted), None)
+    )
+    if match is None:
+        raise VoiceBridgeError("pipeline_not_found", "Configured pipeline no longer exists")
+    return match.id, match.name
 
 
 class TacktabPipelineSelect(SelectEntity):
@@ -78,20 +122,23 @@ class TacktabPipelineSelect(SelectEntity):
             self.device.pipeline_entities = {}  # type: ignore[attr-defined]
         self.device.pipeline_entities[self.slot_id] = self.entity_id  # type: ignore[attr-defined]
 
-    async def async_select_option(self, option: str) -> None:
+    def ensure_idle(self) -> None:
         if (
             self.device.config_lock.locked()
-            or
-            self.device.media_lease is not None
+            or self.device.media_lease is not None
             or getattr(self.device, "realtime_active", False)
             or (self.device.session is not None and (self.device.session.runs or self.device.session.actions))
         ):
             raise VoiceBridgeError("busy", "Voice device is busy")
-        pipeline_id = None
-        if option != PREFERRED:
-            pipeline_id = next((pipeline.id for pipeline in async_get_pipelines(self.hass) if pipeline.name == option), None)
-            if pipeline_id is None:
-                raise VoiceBridgeError("pipeline_not_found", "Configured pipeline no longer exists")
+
+    async def async_select_option(self, option: str) -> None:
+        self.ensure_idle()
+        pipeline_id, _name = resolve_pipeline_option(self.hass, option)
+        self.async_select_pipeline_id(pipeline_id)
+
+    def async_select_pipeline_id(self, pipeline_id: str | None) -> None:
+        """Store a stable pipeline id (None keeps following HA's preferred one)."""
+        self.ensure_idle()
         slots = list(self.device.slots)
         index = next(index for index, slot in enumerate(slots) if slot.slot_id == self.slot_id)
         slots[index] = replace(slots[index], pipeline_id=pipeline_id)

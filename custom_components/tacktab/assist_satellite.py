@@ -99,6 +99,13 @@ class TacktabAssistSatellite(AssistSatelliteEntity):
         return getattr(self.device, "pipeline_entities", {}).get(self.slot.slot_id)
 
     @property
+    def vad_sensitivity_entity_id(self) -> str | None:
+        """Point HA's base class at the tablet's finished-speaking select."""
+        entity_id = getattr(self.device, "vad_entity_id", None)
+        # HA raises when a named select has no state, so only name a live one.
+        return entity_id if entity_id and self.hass is not None and self.hass.states.get(entity_id) else None
+
+    @property
     def supported_features(self) -> AssistSatelliteEntityFeature:
         if (
             not self.slot.enabled
