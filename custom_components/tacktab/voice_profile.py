@@ -107,7 +107,8 @@ def _int_range(low: int, high: int) -> Validator:
 
 def _float_range(low: float, high: float) -> Validator:
     def check(value: Any) -> None:
-        if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
+        # An int is always finite, and math.isfinite(10**1000) raises OverflowError.
+        if type(value) not in (int, float) or (type(value) is float and not math.isfinite(value)) or not low <= value <= high:
             _fail(f"Expected a number from {low} to {high}")
 
     return check
@@ -135,7 +136,7 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 
 
 def _slug(value: Any) -> None:
-    if type(value) is not str or not _SLUG.match(value):
+    if type(value) is not str or not _SLUG.fullmatch(value):
         _fail("Expected a lowercase identifier")
 
 
@@ -231,7 +232,7 @@ def strip_excluded(value: Any, path: str, dropped: list[str]) -> Any:
     if type(value) is dict:
         kept: dict[Any, Any] = {}
         for key, item in value.items():
-            if type(key) is not str or not _KEY_RE.match(key) or key in NESTED_EXCLUDED_KEYS or _denied(key):
+            if type(key) is not str or not _KEY_RE.fullmatch(key) or key in NESTED_EXCLUDED_KEYS or _denied(key):
                 dropped.append(f"{path}.{_printable_path_key(key)}")
                 continue
             kept[key] = strip_excluded(item, f"{path}.{key}", dropped)
@@ -304,7 +305,7 @@ def check_known_or_unknown(group: str, key: str, value: Any) -> None:
     if validator is not None:
         validator(value)
         return
-    if not _KEY_RE.match(key):
+    if not _KEY_RE.fullmatch(key):
         _fail("Invalid key name")
     _json_value(value)
 
@@ -351,7 +352,7 @@ def sanitize_removals(remove: Any) -> dict[str, list[str]]:
         if group not in GROUPS or type(keys) is not list or len(keys) > MAX_KEYS_PER_GROUP:
             _fail("Invalid removal")
         for key in keys:
-            if type(key) is not str or not _KEY_RE.match(key):
+            if type(key) is not str or not _KEY_RE.fullmatch(key):
                 _fail("Invalid removal")
         clean[group] = list(dict.fromkeys(keys))
     return clean

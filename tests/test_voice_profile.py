@@ -377,3 +377,65 @@ def test_a_cyrillic_lookalike_password_key_is_dropped_not_rewritten() -> None:
     assert clean["voice"]["future"] == {"keep": 1, "p_ssword": "x"}  # no rewrite into another key
     assert dropped == [f"voice.future.{key}"]
     assert "hunter2" not in str(clean)
+
+
+# -- trailing newline and huge integers ---------------------------------------
+@pytest.mark.parametrize("key", ["safe\n", "future\n", "safe\r\n", "safe\n\n"])
+def test_a_trailing_newline_does_not_pass_key_validation(key: str) -> None:
+    clean, dropped = sanitize_groups({"voice": {"future": {key: 1, "keep": 2}}})
+    assert clean["voice"]["future"] == {"keep": 2}
+    assert len(dropped) == 1 and all(char.isprintable() for char in dropped[0])
+    with pytest.raises(ProfileError):
+        sanitize_groups({"voice": {key: 1}})
+    assert normalize_document({"revision": 1, "groups": {"voice": {key: 1, "future": {key: 1, "keep": 2}}}})["groups"]["voice"] == {
+        "future": {"keep": 2}
+    }
+    with pytest.raises(ProfileError):
+        sanitize_removals({"voice": [key]})
+
+
+@pytest.mark.parametrize("skin", ["glow_orb\n", "glow orb", "Glow_Orb"])
+def test_identifier_values_reject_a_trailing_newline_too(skin: str) -> None:
+    with pytest.raises(ProfileError):
+        sanitize_groups({"appearance": {"skin_1": skin}})
+
+
+@pytest.mark.parametrize(("group", "key"), [
+    ("voice", "wake_sensitivity"), ("appearance", "text_scale"), ("timers", "timer_scale"), ("chimes", "chime_volume"),
+])
+@pytest.mark.parametrize("huge", [10**1000, -(10**1000)])
+def test_huge_integers_are_invalid_profile_not_overflow(group: str, key: str, huge: int) -> None:
+    with pytest.raises(ProfileError) as err:
+        sanitize_groups({group: {key: huge}})
+    assert err.value.code == "invalid_profile"
+
+
+@pytest.mark.parametrize("huge", [10**1000, 2**53 + 1])
+def test_huge_integers_in_unknown_values_are_invalid_profile(huge: int) -> None:
+    for value in (huge, [huge], {"a": huge}):
+        with pytest.raises(ProfileError) as err:
+            sanitize_groups({"voice": {"future": value}})
+        assert err.value.code == "invalid_profile"
+
+
+def test_load_drops_only_the_huge_integer_and_keeps_healthy_data() -> None:
+    doc = normalize_document({
+        "revision": 4,
+        "groups": {
+            "voice": {"wake_sensitivity": 10**1000, "wake_fine_tune": 2, "future_big": 10**1000, "future_ok": {"a": 1}},
+            "timers": {"timer_scale": 1.25},
+        },
+    })
+    assert doc["groups"]["voice"] == {"wake_fine_tune": 2, "future_ok": {"a": 1}}
+    assert doc["groups"]["timers"] == {"timer_scale": 1.25} and doc["revision"] == 4
+
+
+def test_a_huge_integer_in_a_bridge_number_is_a_protocol_error() -> None:
+    message = {
+        "id": 5, "type": "tacktab/voice/claim", "epoch": EPOCH, "claim_id": REQUEST, "slot_id": "primary",
+        "wake_word_phrase": "okay tacktab", "snr_db": 10**1000, "confidence": None,
+    }
+    with pytest.raises(VoiceProtocolError) as err:
+        validate_message(message)
+    assert err.value.code == "invalid_format"
+    assert validate_message({**message, "snr_db": 12})["snr_db"] == 12

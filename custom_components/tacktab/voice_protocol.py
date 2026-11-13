@@ -60,7 +60,7 @@ def _int(value: Any, *, minimum: int = 0, maximum: int | None = None) -> int:
 
 
 def _number(value: Any, *, minimum: float, maximum: float) -> float:
-    if type(value) not in (int, float) or not math.isfinite(value) or not minimum <= value <= maximum:
+    if type(value) not in (int, float) or (type(value) is float and not math.isfinite(value)) or not minimum <= value <= maximum:
         _fail()
     return float(value)
 

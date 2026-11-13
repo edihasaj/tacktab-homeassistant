@@ -195,3 +195,23 @@ async def test_a_deep_update_is_invalid_profile_and_changes_nothing(hass: HomeAs
         await manager.async_update(base_revision=0, writer=WRITER, groups={"voice": {"future": _deep(1000)}})
     assert err.value.code == "invalid_profile"
     assert manager.doc["revision"] == 0 and STORAGE_KEY not in hass_storage
+
+
+async def test_a_huge_stored_integer_drops_only_that_value_and_does_not_make_the_profile_read_only(
+    hass: HomeAssistant, hass_storage
+) -> None:
+    data = {"revision": 5, "groups": {"voice": {"wake_sensitivity": 10**1000, "wake_fine_tune": 2}, "timers": {"timer_scale": 1.2}}}
+    manager = VoiceProfileManager(hass)
+    with patch.object(manager._store, "async_load", AsyncMock(return_value=data)):
+        await manager.async_load()
+    assert not manager.read_only
+    assert manager.doc["revision"] == 5
+    assert manager.doc["groups"]["voice"] == {"wake_fine_tune": 2} and manager.doc["groups"]["timers"] == {"timer_scale": 1.2}
+
+
+async def test_a_huge_integer_update_is_invalid_profile_and_changes_nothing(hass: HomeAssistant, hass_storage) -> None:
+    manager = await _manager(hass)
+    with pytest.raises(ProfileError) as err:
+        await manager.async_update(base_revision=0, writer=WRITER, groups={"voice": {"wake_sensitivity": 10**1000}})
+    assert err.value.code == "invalid_profile"
+    assert manager.doc["revision"] == 0 and STORAGE_KEY not in hass_storage
