@@ -37,3 +37,20 @@ changes are authoritative Core events. Finished timer records remain in the
 bounded mirror until native dismisses them, so reconnect preserves an active
 alarm. Assist Core timers are memory-only: a Home Assistant restart returns an
 empty timer snapshot and does not recreate timers.
+
+## Migrate from Voice Satellite
+
+The authenticated `tacktab/voice/migration_plan` WebSocket command discovers
+the installed `voice_satellite` integration's Assist satellites and returns a
+read-only plan. Each candidate includes its assistant/pipeline, wake word and
+detection settings, conversation/final-speech settings when exposed, timer
+choices, and automation/script references to that satellite or
+`voice_satellite_timer`. YAML is only parsed for this inventory; it is never
+written, and the old Voice Satellite entry is never changed.
+
+`tacktab/voice/migration_apply` is scoped to the connected Tacktab tablet and
+only writes that tablet's primary Tacktab pipeline select. Native clients apply
+their selected voice, conversation and timer choices locally. Review every
+reported reference yourself: the replacement timer event is
+`tacktab_voice_timer`, but the bridge intentionally does not rewrite an
+automation or script. Voice Satellite skins currently have no native mapping.
