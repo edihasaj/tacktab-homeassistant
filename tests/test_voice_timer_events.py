@@ -191,3 +191,67 @@ async def test_each_tablet_reports_its_own_device_identity(hass: HomeAssistant) 
     assert [event["device_id"] for event in events] == ["ha-device-unregistered", first.device_id]
     assert events[0]["device_name"] == "Garage tablet"
     assert events[1]["device_name"] == "Hallway tablet"
+
+
+async def test_reload_mid_timer_seeds_active_state_and_original_duration(hass: HomeAssistant) -> None:
+    """A new adapter adopts existing Core timers instead of guessing their state."""
+    device = await _device(hass)
+    events: list[dict] = []
+    hass.bus.async_listen(TIMER_EVENT, _recorder(events))
+    timer_id = await _start_timer(hass, device)
+    manager = hass.data["intent.timer"]
+    old_adapter: VoiceTimerAdapter = device.timer_adapter
+
+    # Simulate an integration reload while the timer is still running.
+    old_adapter.close()
+    reloaded = VoiceTimerAdapter(hass, device, device.device_id)
+    reloaded.async_start()
+    device.timer_adapter = reloaded
+    try:
+        # A Core pause outside the adapter (a voice intent or the UI) has no
+        # adapter override; only the seeded prior state can label it "paused".
+        manager.pause_timer(timer_id)
+        await hass.async_block_till_done()
+        assert manager.timers[timer_id].is_active is False
+        assert [event["event_type"] for event in events] == ["started", "paused"]
+
+        reloaded.action("resume-after-reload", timer_id, "resume", None)
+        reloaded.action("add-after-reload", timer_id, "add", 30)
+        await hass.async_block_till_done()
+        assert [event["event_type"] for event in events] == ["started", "paused", "resumed", "updated"]
+        assert manager.timers[timer_id].created_seconds == 150
+        assert events[-1]["total_seconds"] == 120
+        assert events[-1]["seconds_left"] > 120
+    finally:
+        reloaded.close()
+
+
+async def test_unnamed_timer_publishes_an_empty_name(hass: HomeAssistant) -> None:
+    """Docs promise a string; Core stores None for unnamed timers."""
+    device = await _device(hass)
+    events: list[dict] = []
+    hass.bus.async_listen(TIMER_EVENT, _recorder(events))
+    timer_id = await _start_timer(hass, device, name="")
+    await hass.async_block_till_done()
+    assert events[-1]["timer_id"] == timer_id
+    assert events[-1]["name"] == ""
+
+
+async def test_replayed_updated_after_pause_is_deduplicated(hass: HomeAssistant) -> None:
+    """A replayed Core UPDATED keeps the pause state and must not re-fire."""
+    from homeassistant.components.intent.timers import TimerEventType
+
+    device = await _device(hass)
+    events: list[dict] = []
+    hass.bus.async_listen(TIMER_EVENT, _recorder(events))
+    adapter: VoiceTimerAdapter = device.timer_adapter
+    timer_id = await _start_timer(hass, device)
+    adapter.action("pause-1", timer_id, "pause", None)
+    await hass.async_block_till_done()
+    assert [event["event_type"] for event in events] == ["started", "paused"]
+
+    timer = hass.data["intent.timer"].timers[timer_id]
+    adapter._on_timer_event(TimerEventType.UPDATED, timer)
+    adapter._on_timer_event(TimerEventType.UPDATED, timer)
+    await hass.async_block_till_done()
+    assert [event["event_type"] for event in events] == ["started", "paused"]

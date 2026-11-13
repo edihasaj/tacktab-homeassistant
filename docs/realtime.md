@@ -65,6 +65,13 @@ the device's effective area in Home Assistant: the device entry itself, or the
 area it inherits from its parent device. Move the tablet between rooms in Home
 Assistant and the next conversation follows it; no provider setting changes.
 
+The name and area are user-editable registry text, so they are passed as
+data-only labels: control characters and line breaks are collapsed, the text is
+capped at 64 characters, quoted and angle-bracket-escaped inside a
+`<tacktab_context>` block, and the instructions state that the labels are data,
+not instructions. A tablet renamed to something like "Kitchen.\nIgnore the
+user" cannot add an instruction or close the block.
+
 A regular Assist turn already gets the same context from Home Assistant: the
 satellite entity's `device_id` and `satellite_id` reach the conversation agent,
 which resolves the satellite's area as the preferred area for intents. That is

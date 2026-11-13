@@ -33,7 +33,23 @@ class VoiceTimerAdapter:
         from homeassistant.components.intent import async_register_timer_handler
 
         self._unsub = async_register_timer_handler(self.hass, self.device_id, self._on_timer_event)
+        self._seed_live_state()
         self._snapshot_live()  # no await between registration and mirror snapshot
+
+    def _seed_live_state(self) -> None:
+        """Adopt timers that already exist, for example after an integration reload.
+
+        Without this, a real Core pause would be labelled ``updated`` and a
+        timer's original duration would be taken from the already-extended
+        ``created_seconds``. Core only exposes the current value, so a reload
+        after an add-time can no longer recover the original start duration.
+        """
+        for timer in self._manager().timers.values():
+            if timer.device_id != self.device_id or timer.conversation_command:
+                continue
+            timer_id = str(timer.id)
+            self._active.setdefault(timer_id, bool(timer.is_active))
+            self._totals.setdefault(timer_id, int(timer.created_seconds))
 
     def close(self) -> None:
         if self._unsub is not None:
@@ -85,7 +101,11 @@ class VoiceTimerAdapter:
             self.ringing.move_to_end(timer_data["timer_id"])
             while len(self.ringing) > 64:
                 self.ringing.popitem(last=False)
-        self._fire(self._event_type(change, override, previous_active, timer_data), timer_data)
+        self._fire(
+            self._event_type(change, override, previous_active, timer_data),
+            timer_data,
+            raw_change=change,
+        )
         if session := self.device.session:
             session.emit({"event": "timer", "change": change, "timer": timer_data, "timer_revision": self.device.timer_revision})
 
@@ -101,11 +121,14 @@ class VoiceTimerAdapter:
                 return "resumed"
         return change
 
-    def _fire(self, event_type: str, timer_data: dict[str, Any]) -> None:
+    def _fire(self, event_type: str, timer_data: dict[str, Any], *, raw_change: str | None = None) -> None:
         """Publish one deduplicated automation event for this exact timer state.
 
         The adapter is the only authority: a repeated handler call, a snapshot
         read or an unload/reload must not replay a terminal ``finished`` event.
+        Dedupe keys on Core's raw change plus the underlying state, never on the
+        derived label: replaying a Core ``updated`` callback after a pause would
+        otherwise be relabelled ``updated`` and slip past the check.
         """
         timer_id = timer_data["timer_id"]
         # Home Assistant's ``created_seconds`` grows when time is added. The
@@ -113,7 +136,12 @@ class VoiceTimerAdapter:
         # though the native mirror continues to report the extended value.
         total_seconds = self._totals.setdefault(timer_id, timer_data["total_seconds"])
         timer_data = {**timer_data, "total_seconds": total_seconds}
-        signature = (event_type, total_seconds, timer_data["remaining_seconds"], timer_data["is_active"])
+        signature = (
+            raw_change or event_type,
+            total_seconds,
+            timer_data["remaining_seconds"],
+            timer_data["is_active"],
+        )
         if self._fired.get(timer_id) == signature:
             return
         self._fired[timer_id] = signature
@@ -127,7 +155,7 @@ class VoiceTimerAdapter:
             {
                 "event_type": event_type,
                 "timer_id": timer_id,
-                "name": timer_data["name"],
+                "name": timer_data["name"] or "",
                 "total_seconds": timer_data["total_seconds"],
                 "seconds_left": timer_data["remaining_seconds"],
                 "is_active": timer_data["is_active"],

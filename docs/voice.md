@@ -63,6 +63,13 @@ published state per timer and publishes only a new transition. An explicit
 repeat of the same `pause`, `resume`, add or subtract that Core ignores also
 produces no duplicate event.
 
+An integration reload adopts the timers that already exist, so a pause made
+outside the tablet is still labelled `paused` and the duration the timer
+started with is preserved. Core tracks only the current duration, so a reload
+that happens after time was added cannot recover the pre-add value; the current
+duration becomes the baseline. An unnamed timer publishes `name: ""`, never
+`null`.
+
 ```yaml
 automation:
   - alias: Flash the lamps when any tablet timer ends
