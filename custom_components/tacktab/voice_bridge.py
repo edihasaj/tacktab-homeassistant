@@ -193,6 +193,9 @@ class VoiceSession:
             self.device.media_lease = None
         if self.device.session is self:
             self.device.session = None
+            from .voice_profile_manager import async_notify_session_changed
+
+            async_notify_session_changed(self.hass)
 
     def validate_epoch(self, msg: dict[str, Any]) -> None:
         if self.closed or self.device.session is not self or msg["epoch"] != self.epoch:
@@ -606,6 +609,9 @@ class VoiceBridge:
             from .voice_profile_bridge import async_connect_summary
 
             result["voice_profile"] = await async_connect_summary(session)
+        from .voice_profile_manager import async_notify_session_changed
+
+        async_notify_session_changed(self.hass)
         connection.send_result(msg["id"], result)
 
     async def handle(self, connection: ActiveConnection, raw: dict[str, Any]) -> None:

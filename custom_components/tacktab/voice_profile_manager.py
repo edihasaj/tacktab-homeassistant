@@ -89,7 +89,8 @@ class VoiceProfileManager:
         return lambda: self._listeners.discard(listener)
 
     @callback
-    def _notify_listeners(self) -> None:
+    def async_notify_listeners(self) -> None:
+        """Rewrite the fleet entities; also called when a tablet's session changes."""
         for listener in tuple(self._listeners):
             listener()
 
@@ -119,7 +120,7 @@ class VoiceProfileManager:
         device = async_get_bridge(self.hass).devices.get(entry.data.get(VOICE_ENTRY_KEY, ""))
         if device is not None:
             self._emit_changed(device, None, reason="follow_changed")
-        self._notify_listeners()
+        self.async_notify_listeners()
 
     # -- reads ---------------------------------------------------------------
     def get_view(self, device: "VoiceDevice | None" = None) -> dict[str, Any]:
@@ -188,7 +189,7 @@ class VoiceProfileManager:
                     self._recent.popitem(last=False)
         if changed:
             self._fan_out(changed, origin)
-            self._notify_listeners()
+            self.async_notify_listeners()
         return result
 
     # -- fan-out -------------------------------------------------------------
@@ -213,6 +214,13 @@ class VoiceProfileManager:
         if reason == "update" and not groups:
             return
         session.emit({"event": "voice_profile_changed", "reason": reason, **view(self.doc, groups), "following": {"enabled": enabled, "groups": list(followed)}})
+
+
+@callback
+def async_notify_session_changed(hass: HomeAssistant) -> None:
+    """Refresh fleet entities after a voice session connected, was replaced or closed."""
+    if (manager := hass.data.get(PROFILE_DATA)) is not None:
+        manager.async_notify_listeners()
 
 
 @callback

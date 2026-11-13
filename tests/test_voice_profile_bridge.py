@@ -436,3 +436,42 @@ async def test_nested_secrets_in_unknown_keys_are_dropped_with_paths_and_never_b
     event = await tablets[B].event()
     assert event["groups"]["voice"] == {"future_provider": {"label": "keep", "list": [{"ok": 1}]}}
     assert "api_key" not in str((await tablets[B].get())["result"]["groups"])
+
+
+def _supported(hass, name: str) -> bool:
+    sensor = next(s for s in hass.states.async_entity_ids("sensor") if s.endswith(f"{name}_fleet_voice_profile_revision"))
+    return hass.states.get(sensor).attributes["app_supported"]
+
+
+async def test_app_supported_follows_connect_replacement_and_close(hass, fleet) -> None:
+    entries, tablets = fleet
+    tablet = tablets[A]
+    assert _supported(hass, "kitchen") is False
+
+    await tablet.connect()  # negotiated
+    await hass.async_block_till_done()
+    assert _supported(hass, "kitchen") is True
+
+    await tablet.connect(voice_profile=None)  # replaced by a session that did not negotiate
+    await hass.async_block_till_done()
+    assert _supported(hass, "kitchen") is False
+
+    await tablet.connect()  # replaced again by a negotiated one
+    await hass.async_block_till_done()
+    assert _supported(hass, "kitchen") is True
+
+    await entries[A].runtime_data.session.close("test")  # closed
+    await hass.async_block_till_done()
+    assert _supported(hass, "kitchen") is False
+    assert _supported(hass, "hallway") is False  # the other tablet was never connected
+
+
+async def test_app_supported_clears_when_the_websocket_disconnects(hass, fleet) -> None:
+    entries, tablets = fleet
+    await tablets[A].connect()
+    await hass.async_block_till_done()
+    assert _supported(hass, "kitchen") is True
+    await tablets[A].client.close()
+    await hass.async_block_till_done()
+    assert entries[A].runtime_data.session is None
+    assert _supported(hass, "kitchen") is False
