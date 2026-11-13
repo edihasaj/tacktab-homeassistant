@@ -133,6 +133,9 @@ class VoiceSession:
         self.follow_up_tasks: dict[str, asyncio.Task[None]] = {}
         self.remote_outputs: dict[str, Any] = {}
         self.remote_actions: dict[str, RemoteOutputAction] = {}
+        # True only when the app declared `voice_profile` on protocol 2. Every
+        # profile message is gated on it, so older clients never see one.
+        self.profile_sync = False
         self.closed = False
 
     @property
@@ -596,8 +599,14 @@ class VoiceBridge:
         binary_id, unsub_binary = connection.async_register_binary_handler(lambda h, c, payload: session.on_binary(h, c, payload))
         session = VoiceSession(self.hass, device, connection, msg["id"], binary_id, unsub_binary, msg["protocol"])
         device.session = session
+        session.profile_sync = msg["protocol"] >= 2 and device.capabilities.voice_profile
         connection.subscriptions[msg["id"]] = lambda: self.hass.async_create_task(session.close("unloaded", emit=False), "tacktab_voice_disconnect")
-        connection.send_result(msg["id"], {"protocol": msg["protocol"], "epoch": session.epoch, "binary_handler_id": binary_id, "snapshot_seq": 0, "snapshot": device.snapshot()})
+        result = {"protocol": msg["protocol"], "epoch": session.epoch, "binary_handler_id": binary_id, "snapshot_seq": 0, "snapshot": device.snapshot()}
+        if session.profile_sync:
+            from .voice_profile_bridge import async_connect_summary
+
+            result["voice_profile"] = await async_connect_summary(session)
+        connection.send_result(msg["id"], result)
 
     async def handle(self, connection: ActiveConnection, raw: dict[str, Any]) -> None:
         msg = validate_message(raw)
@@ -658,6 +667,10 @@ class VoiceBridge:
             if adapter is None:
                 raise VoiceBridgeError("timer_not_found", "Timer support is unavailable")
             connection.send_result(msg["id"], adapter.action(msg["request_id"], msg["timer_id"], msg["action"], msg.get("seconds")))
+        elif command in ("voice_profile_get", "voice_profile_update"):
+            from .voice_profile_bridge import async_handle_profile_command
+
+            await async_handle_profile_command(session, connection, msg)
         else:
             raise VoiceBridgeError("invalid_format", "Unsupported voice command")
 
