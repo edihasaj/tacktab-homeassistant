@@ -140,8 +140,8 @@ class TacktabVoiceOptionsFlow(OptionsFlow):
             return self.async_abort(reason="not_supported")
         if user_input is not None:
             options = {**self.config_entry.options, "realtime_trusted_local_http": user_input["realtime_trusted_local_http"]}
-            self.hass.config_entries.async_update_entry(self.config_entry, options=options)
-            return self.async_create_entry(title="", data={})
+            # The flow's data becomes the entry's options, so return all of them.
+            return self.async_create_entry(title="", data=options)
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({vol.Required("realtime_trusted_local_http", default=self.config_entry.options.get("realtime_trusted_local_http", False)): bool}),
