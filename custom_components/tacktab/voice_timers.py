@@ -9,6 +9,8 @@ from homeassistant.core import HomeAssistant, callback
 
 from .voice_bridge import VoiceBridgeError, VoiceDevice
 
+TIMER_EVENT = "tacktab_voice_timer"
+
 
 class VoiceTimerAdapter:
     """Mirrors device timers and isolates the non-public TimerManager boundary."""
@@ -19,6 +21,10 @@ class VoiceTimerAdapter:
         self.device_id = device_id
         self.ringing: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._revisions: dict[str, int] = {}
+        self._active: dict[str, bool] = {}
+        self._fired: dict[str, tuple[Any, ...]] = {}
+        self._totals: dict[str, int] = {}
+        self._override: str | None = None
         self._request_results: OrderedDict[str, dict[str, int]] = OrderedDict()
         self._unsub = None
 
@@ -65,6 +71,10 @@ class VoiceTimerAdapter:
     @callback
     def _on_timer_event(self, event_type: Any, timer: Any) -> None:
         change = str(event_type).split(".")[-1].lower()
+        override, self._override = self._override, None
+        timer_id = str(timer.id)
+        previous_active = self._active.get(timer_id)
+        self._active[timer_id] = bool(timer.is_active)
         self.device.timer_revision += 1
         timer_data = self._serialize(timer, self.device.timer_revision)
         self._revisions[timer_data["timer_id"]] = timer_data["revision"]
@@ -75,8 +85,56 @@ class VoiceTimerAdapter:
             self.ringing.move_to_end(timer_data["timer_id"])
             while len(self.ringing) > 64:
                 self.ringing.popitem(last=False)
+        self._fire(self._event_type(change, override, previous_active, timer_data), timer_data)
         if session := self.device.session:
             session.emit({"event": "timer", "change": change, "timer": timer_data, "timer_revision": self.device.timer_revision})
+
+    @staticmethod
+    def _event_type(change: str, override: str | None, previous_active: bool | None, timer_data: dict[str, Any]) -> str:
+        """Name the transition, including pause and resume from Core's ``updated``."""
+        if override is not None:
+            return override
+        if change == "updated" and previous_active is not None:
+            if previous_active and not timer_data["is_active"]:
+                return "paused"
+            if not previous_active and timer_data["is_active"]:
+                return "resumed"
+        return change
+
+    def _fire(self, event_type: str, timer_data: dict[str, Any]) -> None:
+        """Publish one deduplicated automation event for this exact timer state.
+
+        The adapter is the only authority: a repeated handler call, a snapshot
+        read or an unload/reload must not replay a terminal ``finished`` event.
+        """
+        timer_id = timer_data["timer_id"]
+        # Home Assistant's ``created_seconds`` grows when time is added. The
+        # documented event keeps the duration the timer was started with, even
+        # though the native mirror continues to report the extended value.
+        total_seconds = self._totals.setdefault(timer_id, timer_data["total_seconds"])
+        timer_data = {**timer_data, "total_seconds": total_seconds}
+        signature = (event_type, total_seconds, timer_data["remaining_seconds"], timer_data["is_active"])
+        if self._fired.get(timer_id) == signature:
+            return
+        self._fired[timer_id] = signature
+        while len(self._fired) > 256:
+            self._fired.pop(next(iter(self._fired)))
+        while len(self._totals) > 256:
+            self._totals.pop(next(iter(self._totals)))
+        device_name, _area = _device_identity(self.hass, self.device_id, self.device.name)
+        self.hass.bus.async_fire(
+            TIMER_EVENT,
+            {
+                "event_type": event_type,
+                "timer_id": timer_id,
+                "name": timer_data["name"],
+                "total_seconds": timer_data["total_seconds"],
+                "seconds_left": timer_data["remaining_seconds"],
+                "is_active": timer_data["is_active"],
+                "device_id": self.device_id,
+                "device_name": device_name,
+            },
+        )
 
     def action(self, request_id: str, timer_id: str, action: str, seconds: int | None) -> dict[str, int]:
         """Perform one exact-ID mutation; retries reuse the cached result."""
@@ -88,6 +146,8 @@ class VoiceTimerAdapter:
                 raise VoiceBridgeError("timer_not_found", "Timer was not found")
             self.device.timer_revision += 1
             timer["revision"] = self.device.timer_revision
+            self._active.pop(timer_id, None)
+            self._fire("dismissed", timer)
             if session := self.device.session:
                 session.emit({"event": "timer", "change": "dismissed", "timer": timer, "timer_revision": self.device.timer_revision})
         else:
@@ -97,8 +157,10 @@ class VoiceTimerAdapter:
                 raise VoiceBridgeError("timer_not_found", "Timer was not found")
             try:
                 if action == "pause":
+                    self._override = "paused"
                     manager.pause_timer(timer_id)
                 elif action == "resume":
+                    self._override = "resumed"
                     manager.unpause_timer(timer_id)
                 elif action == "cancel":
                     manager.cancel_timer(timer_id)
@@ -112,8 +174,23 @@ class VoiceTimerAdapter:
                 raise
             except Exception as err:
                 raise VoiceBridgeError("timer_not_found", "Timer was not found") from err
+            finally:
+                # A manager no-op (already paused) fires no handler event.
+                self._override = None
+            if action == "cancel":
+                self._active.pop(timer_id, None)
         result = {"config_revision": self.device.config_revision, "timer_revision": self.device.timer_revision}
         self._request_results[request_id] = result
         while len(self._request_results) > 128:
             self._request_results.popitem(last=False)
         return result
+
+
+def _device_identity(hass: HomeAssistant, device_id: str, fallback: str) -> tuple[str, str | None]:
+    """Return the registry device name and its area name without raising."""
+    try:
+        from .voice_context import async_device_identity
+
+        return async_device_identity(hass, device_id, fallback)
+    except Exception:
+        return fallback, None
